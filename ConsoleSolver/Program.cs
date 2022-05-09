@@ -1,5 +1,4 @@
 ﻿using CraftingSolver;
-using static CraftingSolver.Solver;
 
 Recipe
     newNeoIshgardian = new Recipe
@@ -93,8 +92,7 @@ Crafter
 Simulator sim = new Simulator
 {
     Crafter = newBuffed,
-    Recipe = newNeoIshgardian
-    ,
+    Recipe = classicalMilpreves,
     MaxTrickUses = 0,
     UseConditions = false,
     ReliabilityIndex = 1,
@@ -107,7 +105,7 @@ try
 {
     sim.Initialize();
     Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
-    solution = new JABOASolver().Run(sim, maxTasks);
+    solution = new Libraries.Solvers.JABOASolver().Run(sim, maxTasks);
 }
 catch (Exception)
 {

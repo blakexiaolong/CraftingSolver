@@ -153,9 +153,9 @@ namespace CraftingSolver
 
                 if (action != Atlas.Actions.Manipulation && countdowns.ContainsKey(Atlas.Actions.Manipulation) && durability > 0)
                 {
-                    if (!countdowns[Atlas.Actions.MastersMend].Used && durability < recipe.Durability)
+                    if (!countdowns[Atlas.Actions.Manipulation].Used && durability < recipe.Durability)
                     {
-                        countdowns[Atlas.Actions.MastersMend].Used = true;
+                        countdowns[Atlas.Actions.Manipulation].Used = true;
                     }
                     durability += 5;
                 }

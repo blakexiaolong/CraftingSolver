@@ -277,7 +277,7 @@ namespace CraftingSolver
             double progressIncreaseMultiplier = 1;
             if (action.ProgressIncreaseMultiplier > 0 && state.CountDowns.ContainsKey(Atlas.Actions.MuscleMemory))
             {
-                progressIncreaseMultiplier++;
+                progressIncreaseMultiplier += 1;
                 state.CountDowns.Remove(Atlas.Actions.MuscleMemory);
             }
             if (state.CountDowns.ContainsKey(Atlas.Actions.Veneration))

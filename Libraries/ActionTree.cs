@@ -5,75 +5,33 @@ namespace CraftingSolver
     public class ActionNode
     {
         public Action Action { get; set; }
-        public Dictionary<int, ActionNode> Children { get; set; }
-        public ActionNode Parent { get; set; }
-        public bool Failed { get; set; }
+        public State? State { get; set; }
+        public List<ActionNode> Children { get; set; }
+        public ActionNode? Parent { get; set; }
 
-        public ActionNode(Action action, ActionNode parent)
+        public ActionNode(Action action, State state, ActionNode parent)
         {
             Action = action;
-            Children = new Dictionary<int, ActionNode>();
+            Children = new();
             Parent = parent;
-            Failed = false;
+            State = state;
         }
-        public bool Add(Action action)
+        public ActionNode? Add(Action action, State state)
         {
-            if (Children.ContainsKey(action.ID))
+            if (Children.Any(x => x.Action == action))
             {
-                return !Children[action.ID].Failed;
+                return null;
             }
             else
             {
-                Children.Add(action.ID, new ActionNode(action, this));
+                ActionNode node = new(action, state, this);
+                Children.Add(node);
+                return node;
             }
-            return true;
-        }
-        public bool Add(List<Action> actions)
-        {
-            ActionNode head = null;
-            for (int i = 0; i < actions.Count; i++)
-            {
-                if (i == 0)
-                {
-                    if (Children.ContainsKey(actions[i].ID))
-                    {
-                        if (Children[actions[i].ID].Failed) return false;
-                    }
-                    else
-                    {
-                        Children.Add(actions[i].ID, new ActionNode(actions[i], head));
-                    }
-                    head = Children[actions[i].ID];
-                }
-                else if (i == actions.Count - 1)
-                {
-                    if (head.Children.ContainsKey(actions[i].ID))
-                    {
-                        return !head.Children[actions[i].ID].Failed;
-                    }
-                    else
-                    {
-                        head.Children.Add(actions[i].ID, new ActionNode(actions[i], head));
-                    }
-                }
-                else
-                {
-                    if (head.Children.ContainsKey(actions[i].ID))
-                    {
-                        if (head.Children[actions[i].ID].Failed) return false;
-                    }
-                    else
-                    {
-                        head.Children.Add(actions[i].ID, new ActionNode(actions[i], head));
-                    }
-                    head = head.Children[actions[i].ID];
-                }
-            }
-            return true;
         }
         public List<Action> GetPath()
         {
-            List<Action> path = new List<Action>();
+            List<Action> path = new();
             ActionNode head = this;
             while (head.Parent != null)
             {
@@ -81,6 +39,23 @@ namespace CraftingSolver
                 head = head.Parent;
             }
             return path;
+        }
+        public ActionNode? GetNode(IEnumerable<Action> path)
+        {
+            ActionNode head = this;
+            foreach (Action action in path)
+            {
+                ActionNode? child = head.Children.FirstOrDefault(x => x.Action == action);
+                if (child != null)
+                {
+                    head = child;
+                }
+                else
+                {
+                    return null;
+                }
+            }
+            return head;
         }
     }
 }

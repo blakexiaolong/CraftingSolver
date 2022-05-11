@@ -31,6 +31,51 @@ Recipe
         ProgressModifier = 0.8,
         QualityModifier = 0.7
     },
+    tsai = new Recipe
+    {
+        Level = 555,
+        Difficulty = 3400,
+        StartQuality = 0,
+        MaxQuality = 7100,
+        Durability = 80,
+        SuggestedCraftsmanship = 2748,
+        SuggestedControl = 2589,
+        Stars = 0,
+        ProgressDivider = 129,
+        QualityDivider = 113,
+        ProgressModifier = 1.0,
+        QualityModifier = 1.0
+    },
+    chondriteAlembic = new Recipe
+    {
+        Level = 560,
+        Difficulty = 3500,
+        StartQuality = 0,
+        MaxQuality = 7200,
+        Durability = 80,
+        SuggestedCraftsmanship = 2805,
+        SuggestedControl = 2635,
+        Stars = 0,
+        ProgressDivider = 130,
+        QualityDivider = 115,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.8
+    },
+    bluefeatherBarding = new Recipe
+    {
+        Level = 570,
+        Difficulty = 3700,
+        StartQuality = 0,
+        MaxQuality = 7400,
+        Durability = 80,
+        SuggestedCraftsmanship = 2924,
+        SuggestedControl = 2703,
+        Stars = 1,
+        ProgressDivider = 130,
+        QualityDivider = 115,
+        ProgressModifier = 90,
+        QualityModifier = 80
+    },
     classicalMilpreves = new Recipe
     {
         Level = 580,
@@ -92,7 +137,7 @@ Crafter
 Simulator sim = new Simulator
 {
     Crafter = newBuffed,
-    Recipe = classicalMilpreves,
+    Recipe = chondriteAlembic,
     MaxTrickUses = 0,
     UseConditions = false,
     ReliabilityIndex = 1,
@@ -105,7 +150,7 @@ try
 {
     sim.Initialize();
     Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
-    solution = new Libraries.Solvers.JABOASolver().Run(sim, maxTasks);
+    solution = new Libraries.Solvers.JABOASolver().Run(sim, maxTasks, loggingDelegate: (message) => Console.WriteLine(message));
 }
 catch (Exception)
 {

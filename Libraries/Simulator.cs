@@ -207,7 +207,7 @@ namespace CraftingSolver
             {
                 state.WastedActions++;
                 state.WastedCounter["NonFirstTurn"]++;
-                progressIncreaseMultiplier = 0;
+                bProgressGain = 0;
                 cpCost = 0;
             }
 

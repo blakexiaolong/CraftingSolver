@@ -71,8 +71,8 @@ namespace CraftingSolver
                 NameOfElementUses = NameOfElementUses,
                 Reliability = Reliability,
                 CountUps = CountUps.ToDictionary(x => x.Key, x => x.Value),
-                CountDowns = CountUps.ToDictionary(x => x.Key, x => x.Value),
-                Indefinites = CountUps.ToDictionary(x => x.Key, x => x.Value),
+                CountDowns = CountDowns.ToDictionary(x => x.Key, x => x.Value),
+                Indefinites = Indefinites.ToDictionary(x => x.Key, x => x.Value),
                 Condition = Condition,
 
                 IQ = IQ,

@@ -1,16 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using Libraries;
 
 namespace CraftingSolver
 {
     internal static class LightSimulator
     {
-        public static State Simulate(Simulator simulator, List<Action> actions, State startState, bool useDurability = true)
+        public static State? Simulate(Simulator simulator, List<Action> actions, State startState, bool useDurability = true)
         {
             if (actions == null)
             {
-                return null;
+                return startState;
             }
             Recipe recipe = simulator.Recipe;
             Crafter crafter = simulator.Crafter;
@@ -108,19 +109,22 @@ namespace CraftingSolver
                 }
 
                 double durabilityCost = action.DurabilityCost;
-                if (countdowns.ContainsKey(Atlas.Actions.WasteNot) || countdowns.ContainsKey(Atlas.Actions.WasteNot2))
+                if (durabilityCost > 0)
                 {
-                    if (action.Equals(Atlas.Actions.PrudentTouch) || action.Equals(Atlas.Actions.PrudentSynthesis)) return null;
-                    else
+                    bool wn = false;
+                    if (countdowns.ContainsKey(Atlas.Actions.WasteNot))
                     {
-                        if (!countdowns[Atlas.Actions.WasteNot].Used)
-                        {
-                            countdowns[Atlas.Actions.WasteNot].Used = true;
-                        }
-                        if (!countdowns[Atlas.Actions.WasteNot2].Used)
-                        {
-                            countdowns[Atlas.Actions.WasteNot2].Used = true;
-                        }
+                        countdowns[Atlas.Actions.WasteNot].Used = true;
+                        wn = true;
+                    }
+                    else if (countdowns.ContainsKey(Atlas.Actions.WasteNot2))
+                    {
+                        countdowns[Atlas.Actions.WasteNot2].Used = true;
+                        wn = true;
+                    }
+
+                    if (wn)
+                    {
                         durabilityCost *= 0.5;
                     }
                 }
@@ -211,18 +215,14 @@ namespace CraftingSolver
                 #endregion
             }
 
-            return new State
+            return new State(simulator, actions[^1])
             {
-                Simulator = simulator,
                 Step = actions.Count - 1,
                 LastStep = actions.Count - 1,
-                Action = actions[actions.Count - 1],
                 Durability = durability,
-                CP = cp,
+                Cp = cp,
                 Quality = quality,
-                Progress = progress,
-                IQ = innerQuiet,
-                Reliability = 1
+                Progress = progress
             };
         }
     }

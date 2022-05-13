@@ -138,21 +138,15 @@ Simulator sim = new Simulator
 {
     Crafter = newBuffed,
     Recipe = chondriteAlembic,
-    MaxTrickUses = 0,
-    UseConditions = false,
     ReliabilityIndex = 1,
     MaxLength = 30,
 };
 
 int maxTasks = 20;
 List<CraftingSolver.Action>? solution = new List<CraftingSolver.Action>();
-try
-{
-    sim.Initialize();
-    Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
-    solution = new Libraries.Solvers.JABOASolver().Run(sim, maxTasks, loggingDelegate: (message) => Console.WriteLine(message));
-}
-catch (Exception)
-{
-
-}
+sim.Initialize();
+Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
+solution = new Libraries.Solvers.JABOASolver().Run(sim, maxTasks, loggingDelegate: (message) => Console.WriteLine(message));
+Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));
+Console.WriteLine("Press Enter to exit");
+Console.ReadLine();

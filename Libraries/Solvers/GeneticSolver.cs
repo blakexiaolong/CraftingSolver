@@ -26,7 +26,7 @@ namespace Libraries.Solvers
 
         public static Tuple<double, bool> ScoreState(Simulator sim, State state)
         {
-            if (!state.CheckViolations().DurabilityOk || !state.CheckViolations().CpOk || !state.CheckViolations().TrickOk || state.Reliability != 1)
+            if (!state.CheckViolations().DurabilityOk || !state.CheckViolations().CpOk || !state.CheckViolations().TrickOk)
                 return new Tuple<double, bool>(-1, false);
             bool perfectSolution = state.Quality >= sim.Recipe.MaxQuality && state.Progress >= sim.Recipe.Difficulty;
             double progress = (state.Progress > sim.Recipe.Difficulty ? sim.Recipe.Difficulty : state.Progress) / sim.Recipe.Difficulty;
@@ -179,7 +179,7 @@ namespace Libraries.Solvers
             ListComparer comparer = new ListComparer();
 
             int maxLength = sim.MaxLength;
-            State startState = sim.Simulate(null, new State());
+            State startState = sim.Simulate(null, new State(sim, null));
 
             ConcurrentBag<List<Action>> population = new ConcurrentBag<List<Action>>();
             object lockObj = new object();

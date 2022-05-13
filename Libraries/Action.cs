@@ -12,21 +12,21 @@ namespace CraftingSolver
 
     public class Action : System.IEquatable<Action>
     {
-        public int ID { get; set; } // used only for comparison - faster than string comparison on the name
+        public int ID { get; init; } // used only for comparison - faster than string comparison on the name
 
-        public string? ShortName { get; set; }
-        public string? Name { get; set; }
-        public int DurabilityCost { get; set; }
-        public int CPCost { get; set; }
-        public double SuccessProbability { get; set; }
-        public double QualityIncreaseMultiplier { get; set; }
+        public string? ShortName { get; init; }
+        public string? Name { get; init; }
+        public int DurabilityCost { get; init; }
+        public int CPCost { get; init; }
+        public double SuccessProbability { get; init; }
+        public double QualityIncreaseMultiplier { get; init; }
         public double ProgressIncreaseMultiplier { get; set; }
-        public ActionType ActionType { get; set; }
-        public int ActiveTurns { get; set; }
+        public ActionType ActionType { get; init; }
+        public int ActiveTurns { get; init; }
         public string? Class { get; set; }
         public int Level { get; set; }
-        public bool OnGood { get; set; }
-        public bool OnExcellent { get; set; }
+        public bool OnGood { get; init; }
+        public bool OnExcellent { get; init; }
         public bool OnPoor { get; set; }
 
         public static bool Equals(Action x, Action y)

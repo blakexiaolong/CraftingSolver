@@ -15,7 +15,7 @@ namespace Libraries.Solvers
         private static double minDurabilityCost = 96 / 40D;
 
         private const int PROGRESS_SET_MAX_LENGTH = 7;
-        private const int QUALITY_SET_MAX_LENGTH = 8;
+        private const int QUALITY_SET_MAX_LENGTH = 7;
         private const int SOLUTION_MAX_COUNT = 10000000;
 
         private LoggingDelegate _logger = (string message) => Debug.WriteLine(message);
@@ -25,7 +25,7 @@ namespace Libraries.Solvers
             if (loggingDelegate != null) _logger = loggingDelegate;
 
             int cp = sim.Crafter.CP + (int)(sim.Recipe.Durability * maxDurabilityCost);
-            State startState = sim.Simulate(null, new State());
+            State startState = sim.Simulate(null, new State(sim, null));
 
             Action[] progressActions = new Action[Atlas.Actions.ProgressActions.Length + Atlas.Actions.ProgressBuffs.Length];
             Atlas.Actions.ProgressActions.CopyTo(progressActions, 0);
@@ -43,7 +43,8 @@ namespace Libraries.Solvers
             _logger($"[{DateTime.Now}] CP Cost: {cpCost}; CP Remaining: {cp}");
 
             _logger($"\n[{DateTime.Now}] Generating Quality Combinations");
-            List<KeyValuePair<double, List<Action>>> qualityLists = GenerateActionTree(sim, startState, qualityActions, QualitySuccess, QualityScore, QUALITY_SET_MAX_LENGTH, cp, ignoreProgress: true);
+            //List<KeyValuePair<double, List<Action>>> qualityLists = GenerateActionTree(sim, startState, qualityActions, QualitySuccess, QualityScore, QUALITY_SET_MAX_LENGTH, cp, ignoreProgress: true);
+            List<KeyValuePair<double, List<Action>>> qualityLists = GenerateDFSActionTree(sim, startState, qualityActions, QualitySuccess, QualityScore, QUALITY_SET_MAX_LENGTH, cp, ignoreProgress: true);
             cpCost = (int)ListToCpCost(qualityLists.First().Value);
             cp -= cpCost;
             _logger($"[{DateTime.Now}] Good Lists Found: {qualityLists.Count()}\n\t{string.Join(",", qualityLists.First().Value.Select(x => x.ShortName))}");
@@ -56,7 +57,6 @@ namespace Libraries.Solvers
             for (int qualityIx = 0; qualityIx < qualityLists.Count && !skipOut; qualityIx++)
             {
                 var qualityList = qualityLists[qualityIx].Value;
-                
                 var progressList = progressLists[progressIx].Value;
 
                 double cpRemaining = sim.Crafter.CP - ListToCpCost(progressList, considerDurability: false) + ListToCpCost(qualityList, considerDurability: false);
@@ -67,24 +67,24 @@ namespace Libraries.Solvers
                 int[] merger = new int[qualityList.Count + progressList.Count];
                 for (int k = 0; k < merger.Length; k++) merger[k] = 0;
 
-                bool success = false;
+                bool iterateProgress = false;
                 while (Iterate(merger, merger.Length - 1))
                 {
                     var actions = ZipLists(progressList, qualityList, merger);
                     if (actions == null) continue;
 
                     State s = LightSimulator.Simulate(sim, actions, startState, useDurability: false);
-                    var score = ScoreState(sim, s);
                     if (s == null || s.Progress < sim.Recipe.Difficulty) continue;
+                    if (s.Step == actions.Count && s.Progress < sim.Recipe.Difficulty) iterateProgress = true;
 
-                    List<Action>? solution = InsertDurability(sim, startState, new() { actions }, durabilityActions, s.CP);
+                    var score = ScoreState(sim, s);
+                    List<Action>? solution = InsertDurability(sim, startState, new() { actions }, durabilityActions, s.Cp);
                     if (solution == null) continue;
 
                     s = LightSimulator.Simulate(sim, solution, startState);
                     score = ScoreState(sim, s);
                     if (s == null && s.Progress < sim.Recipe.Difficulty) continue;
-
-                    success = true;
+                    
                     if (score.Item1 > bestSolution.Item1)
                     {
                         bestSolution = new(score.Item1, solution);
@@ -93,17 +93,15 @@ namespace Libraries.Solvers
                     }
                     qualityLists.RemoveAll(x => x.Key <= score.Item1);
                 }
-                if (!success)
+
+                if (iterateProgress)
                 {
-                    if (progressIx == progressLists.Count)
-                    {
-                        progressIx = 0;
-                    }
-                    else
-                    {
-                        progressIx++;
-                        qualityIx--;
-                    }
+                    progressIx++;
+                    qualityIx--;
+                }
+                else
+                {
+                    progressIx = 0;
                 }
             }
 
@@ -138,6 +136,48 @@ namespace Libraries.Solvers
             return -1 * score;
         }
 
+        private List<KeyValuePair<double, List<Action>>> GenerateDFSActionTree(Simulator sim, State startState, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
+        {
+            long nodesGenerated = 0, solutionCount = 0;
+            ActionNode head = new(null, startState, null);
+            List<KeyValuePair<double, List<Action>>> lists = new();
+            SubDFSActionTree(sim, head, actions, successCondition, nodeScore, maxLength, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
+            _logger($"[{DateTime.Now}] Nodes Generated: {nodesGenerated}");
+            _logger($"[{DateTime.Now}] Lists Found: {lists.Count}");
+
+            lists = lists.OrderBy(x => x.Key).ToList();
+            _logger($"[{DateTime.Now}] Sorted");
+
+            var s = sim.Simulate(lists.First().Value, startState, useDurability: false);
+            return lists;
+        }
+
+        private void SubDFSActionTree(Simulator sim, ActionNode node, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int remainingDepth, double cpLimit, bool ignoreProgress, ref List<KeyValuePair<double, List<Action>>> lists, ref long nodesGenerated, ref long solutionCount)
+        {
+            if (remainingDepth < 0) return;
+            foreach (Action action in actions)
+            {
+                nodesGenerated++;
+                State state = sim.Simulate(new() { action }, node.State, useDurability: false);
+                if (state.WastedActions > 0 || !successCondition(state)) continue;
+
+                Tuple<double, bool> score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
+                if (score.Item1 <= 0) continue;
+
+                ActionNode? newNode = node.Add(action, state);
+                if (newNode == null) continue;
+
+                List<Action> path = newNode.GetPath();
+                if (ListToCpCost(path) > cpLimit) continue;
+
+                solutionCount++;
+                lists.Add(new KeyValuePair<double, List<Action>>(nodeScore(path, score.Item1), path));
+                SubDFSActionTree(sim, newNode, actions, successCondition, nodeScore, remainingDepth - 1, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
+
+                newNode.State = null;
+                //newNode.Children = null;
+            }
+        }
         public List<KeyValuePair<double, List<Action>>> GenerateActionTree(Simulator sim, State startState, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
         {
             long round = 0, nodesGenerated = 0, nodesRemoved = 0, solutionCount = 0;
@@ -210,7 +250,7 @@ namespace Libraries.Solvers
 
         public static double ListToCpCost(List<Action> list, bool considerDurability = true)
         {
-            double cpTotal = list.Sum(x => x.CPCost + (considerDurability ? x.DurabilityCost * minDurabilityCost : 0));
+            double cpTotal = list.Sum(x => x.CPCost) + (considerDurability ? list.Sum(x => x.DurabilityCost) * minDurabilityCost : 0);
             int observeCost = (list.Count(x => x.Equals(Atlas.Actions.FocusedSynthesis)) + list.Count(x => x.Equals(Atlas.Actions.FocusedTouch))) * Atlas.Actions.Observe.CPCost;
 
             int comboSavings = 0;
@@ -271,13 +311,13 @@ namespace Libraries.Solvers
             Dictionary<Action, int> actionChoices = new();
 
             foreach (var action in durabilityActions) actionChoices.Add(action, 999);
-            List<List<Action>> results = durabilityActions.Select(action => new List<Action> { action }).ToList();
+            IEnumerable<List<Action>> results = durabilityActions.Select(action => new List<Action> { action });
 
             do
             {
-                results = results.SelectMany(result => Iterate(result, actionChoices, true)).Where(result => result.Sum(action => action.CPCost) <= cpMax).ToList();
+                results = results.SelectMany(result => Iterate(result, actionChoices, true)).Where(result => result.Sum(action => action.CPCost) <= cpMax);
                 durabilitySolutions.AddRange(results);
-            } while (results.Count > 0);
+            } while (results.Any());
 
             var solution = ZipListSets(sim, startState, actions, durabilitySolutions, true);
             return solution.Any() ? solution[^1].Value : null;
@@ -331,59 +371,51 @@ namespace Libraries.Solvers
         public static List<KeyValuePair<double, List<Action>>> ZipListSets(Simulator sim, State startState, List<List<Action>> left, List<List<Action>> right, bool useDurability)
         {
             SortedList<double, List<Action>> zippedLists = new();
-            for (int leftIx = 0; leftIx < left.Count; leftIx++)
+            foreach (var leftList in left)
             {
-                int rightIx = 0;
-                List<Action> leftList = left[leftIx], rightList = right[rightIx];
-                if (ListToCpCost(leftList, false) + ListToCpCost(rightList, false) > sim.Crafter.CP) continue;
-                if (leftList.Sum(x => x.DurabilityCost) - leftList[^1].DurabilityCost > sim.Recipe.Durability + MaxDurabilityGain(rightList, leftList.OrderBy(x => x.DurabilityCost).ToList())) continue;
-
-                int[] merger = new int[leftList.Count + rightList.Count];
-                for (int k = 0; k < merger.Length; k++) merger[k] = 0;
-
-                while (Iterate(merger, merger.Length - 1))
+                foreach (var rightList in right)
                 {
-                    var actions = ZipLists(leftList, rightList, merger);
-                    if (actions == null) continue;
+                    if (ListToCpCost(leftList, false) + ListToCpCost(rightList, false) > sim.Crafter.CP) continue;
+                    if (leftList.Sum(x => x.DurabilityCost) - leftList[^1].DurabilityCost > sim.Recipe.Durability +
+                        MaxDurabilityGain(rightList, leftList.OrderBy(x => x.DurabilityCost).ToList())) continue;
 
-                    State s = LightSimulator.Simulate(sim, actions.ToList(), startState, useDurability);
-                    var score = ScoreState(sim, s);
-                    if (s == null || s.Progress < sim.Recipe.Difficulty || zippedLists.ContainsKey(score.Item1)) continue;
+                    var merger = new int[leftList.Count + rightList.Count];
+                    for (var k = 0; k < merger.Length; k++) merger[k] = 0;
 
-                    zippedLists.Add(score.Item1, actions);
+                    while (Iterate(merger, merger.Length - 1))
+                    {
+                        var actions = ZipLists(leftList, rightList, merger);
+                        if (actions == null) continue;
+
+                        var s = LightSimulator.Simulate(sim, actions.ToList(), startState, useDurability);
+                        if (s == null) continue;
+
+                        var score = ScoreState(sim, s);
+                        if (s.Progress < sim.Recipe.Difficulty || zippedLists.ContainsKey(score.Item1)) continue;
+
+                        zippedLists.Add(score.Item1, actions);
+                    }
                 }
             }
             return zippedLists.ToList();
         }
-        public static List<Action> ZipLists(List<Action> progress, List<Action> quality, int[] decider)
+        private static List<Action>? ZipLists(List<Action> progress, List<Action> quality, int[] decider)
         {
-            if (decider[decider.Length - 1] != 0) return null;
+            if (decider[^1] != 0) return null;
 
             int p = 0, q = 0;
-            Action[] actions = new Action[decider.Length];
-            for (int i = 0; i < decider.Length; i++)
+            var actions = new Action[decider.Length];
+            for (var i = 0; i < decider.Length; i++)
             {
                 if (decider[i] == 0)
                 {
-                    if (p >= progress.Count)
-                    {
-                        return null;
-                    }
-                    else
-                    {
-                        actions[i] = progress[p++];
-                    }
+                    if (p >= progress.Count) return null;
+                    actions[i] = progress[p++];
                 }
                 else
                 {
-                    if (q >= quality.Count)
-                    {
-                        return null;
-                    }
-                    else
-                    {
-                        actions[i] = quality[q++];
-                    }
+                    if (q >= quality.Count) return null;
+                    actions[i] = quality[q++];
                 }
             }
             return actions.ToList();

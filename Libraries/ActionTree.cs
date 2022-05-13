@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using Libraries;
 
 namespace CraftingSolver
 {
@@ -6,7 +7,7 @@ namespace CraftingSolver
     {
         public Action Action { get; set; }
         public State? State { get; set; }
-        public List<ActionNode> Children { get; set; }
+        public List<ActionNode>? Children { get; set; }
         public ActionNode? Parent { get; set; }
 
         public ActionNode(Action action, State state, ActionNode parent)
@@ -16,9 +17,10 @@ namespace CraftingSolver
             Parent = parent;
             State = state;
         }
+
         public ActionNode? Add(Action action, State state)
         {
-            if (Children.Any(x => x.Action == action))
+            if (Children != null && IncludesAction(action))
             {
                 return null;
             }
@@ -29,6 +31,16 @@ namespace CraftingSolver
                 return node;
             }
         }
+
+        private bool IncludesAction(Action context)
+        {
+            if (Children == null) return false;
+            foreach(var item in Children)
+                if (item.Action.Equals(context))
+                    return true;
+            return false;
+        }
+
         public List<Action> GetPath()
         {
             List<Action> path = new();

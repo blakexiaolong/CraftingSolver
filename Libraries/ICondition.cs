@@ -1,4 +1,4 @@
-﻿namespace CraftingSolver
+﻿namespace Libraries
 {
     public enum ConditionQuality { Poor, Normal, Good, Excellent }
     public interface ICondition

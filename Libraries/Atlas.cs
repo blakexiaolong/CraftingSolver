@@ -1,13 +1,10 @@
-﻿using System.Collections.Generic;
-using System.Linq;
-
-namespace CraftingSolver
+﻿namespace Libraries
 {
     public static class Atlas
     {
         public static class Actions
         {
-            public static Action Observe = new Action
+            public static readonly Action Observe = new Action
             {
                 ID = 1,
                 ShortName = "observe",
@@ -25,7 +22,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action BasicSynth = new Action
+            public static readonly Action BasicSynth = new Action
             {
                 ID = 2,
                 ShortName = "basicSynth",
@@ -61,7 +58,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action RapidSynthesis = new Action
+            public static readonly Action RapidSynthesis = new Action
             {
                 ID = 5,
                 ShortName = "rapidSynthesis",
@@ -79,7 +76,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action FlawlessSynthesis = new Action
+            public static readonly Action FlawlessSynthesis = new Action
             {
                 ID = 6,
                 ShortName = "flawlessSynthesis",
@@ -97,7 +94,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action BasicTouch = new Action
+            public static readonly Action BasicTouch = new Action
             {
                 ID = 7,
                 ShortName = "basicTouch",
@@ -115,7 +112,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action StandardTouch = new Action
+            public static readonly Action StandardTouch = new Action
             {
                 ID = 8,
                 ShortName = "standardTouch",
@@ -133,7 +130,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action HastyTouch = new Action
+            public static readonly Action HastyTouch = new Action
             {
                 ID = 9,
                 ShortName = "hastyTouch",
@@ -151,7 +148,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action ByregotsBlessing = new Action
+            public static readonly Action ByregotsBlessing = new Action
             {
                 ID = 10,
                 ShortName = "byregotsBlessing",
@@ -169,7 +166,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action MastersMend = new Action
+            public static readonly Action MastersMend = new Action
             {
                 ID = 11,
                 ShortName = "mastersMend",
@@ -187,7 +184,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action TricksOfTheTrade = new Action
+            public static readonly Action TricksOfTheTrade = new Action
             {
                 ID = 12,
                 ShortName = "tricksOfTheTrade",
@@ -205,7 +202,7 @@ namespace CraftingSolver
                 OnExcellent = true,
                 OnPoor = false
             };
-            public static Action InnerQuiet = new Action
+            public static readonly Action InnerQuiet = new Action
             {
                 ID = 13,
                 ShortName = "innerQuiet",
@@ -223,7 +220,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action Manipulation = new Action
+            public static readonly Action Manipulation = new Action
             {
                 ID = 14,
                 ShortName = "manipulation",
@@ -241,7 +238,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action WasteNot = new Action
+            public static readonly Action WasteNot = new Action
             {
                 ID = 15,
                 ShortName = "wasteNot",
@@ -259,7 +256,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action WasteNot2 = new Action
+            public static readonly Action WasteNot2 = new Action
             {
                 ID = 16,
                 ShortName = "wasteNot2",
@@ -277,7 +274,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action Veneration = new Action
+            public static readonly Action Veneration = new Action
             {
                 ID = 17,
                 ShortName = "veneration",
@@ -295,7 +292,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action Innovation = new Action
+            public static readonly Action Innovation = new Action
             {
                 ID = 18,
                 ShortName = "innovation",
@@ -313,7 +310,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action GreatStrides = new Action
+            public static readonly Action GreatStrides = new Action
             {
                 ID = 19,
                 ShortName = "greatStrides",
@@ -331,7 +328,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action PreciseTouch = new Action
+            public static readonly Action PreciseTouch = new Action
             {
                 ID = 20,
                 ShortName = "preciseTouch",
@@ -349,7 +346,7 @@ namespace CraftingSolver
                 OnExcellent = true,
                 OnPoor = false
             };
-            public static Action MuscleMemory = new Action
+            public static readonly Action MuscleMemory = new Action
             {
                 ID = 21,
                 ShortName = "muscleMemory",
@@ -367,7 +364,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action RapidSynthesis2 = new Action
+            public static readonly Action RapidSynthesis2 = new Action
             {
                 ID = 24,
                 ShortName = "rapidSynthesis2",
@@ -385,7 +382,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action PrudentTouch = new Action
+            public static readonly Action PrudentTouch = new Action
             {
                 ID = 26,
                 ShortName = "prudentTouch",
@@ -403,7 +400,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action FocusedSynthesis = new Action
+            public static readonly Action FocusedSynthesis = new Action
             {
                 ID = 27,
                 ShortName = "focusedSynthesis",
@@ -421,7 +418,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action FocusedTouch = new Action
+            public static readonly Action FocusedTouch = new Action
             {
                 ID = 28,
                 ShortName = "focusedTouch",
@@ -439,7 +436,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action Reflect = new Action
+            public static readonly Action Reflect = new Action
             {
                 ID = 29,
                 ShortName = "reflect",
@@ -457,7 +454,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action PreparatoryTouch = new Action
+            public static readonly Action PreparatoryTouch = new Action
             {
                 ID = 30,
                 ShortName = "preparatoryTouch",
@@ -493,7 +490,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action DelicateSynthesis = new Action
+            public static readonly Action DelicateSynthesis = new Action
             {
                 ID = 32,
                 ShortName = "delicateSynthesis",
@@ -511,25 +508,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action IntensiveSynthesis = new Action
-            {
-                ID = 33,
-                ShortName = "intensiveSynthesis",
-                Name = "Intensive Synthesis",
-                DurabilityCost = 10,
-                CPCost = 6,
-                SuccessProbability = 1.0,
-                QualityIncreaseMultiplier = 0.0,
-                ProgressIncreaseMultiplier = 3.0,
-                ActionType = ActionType.Immediate,
-                ActiveTurns = 1,
-                Class = "All",
-                Level = 78,
-                OnGood = true,
-                OnExcellent = true,
-                OnPoor = false
-            };
-            public static Action TrainedEye = new Action
+            public static readonly Action TrainedEye = new Action
             {
                 ID = 34,
                 ShortName = "trainedEye",
@@ -547,7 +526,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action TrainedFinesse = new Action
+            public static readonly Action TrainedFinesse = new Action
             {
                 ID = 35,
                 ShortName = "trainedFinesse",
@@ -565,7 +544,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action PrudentSynthesis = new Action
+            public static readonly Action PrudentSynthesis = new Action
             {
                 ID = 36,
                 ShortName = "prudentSynthesis",
@@ -583,7 +562,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action AdvancedTouch = new Action
+            public static readonly Action AdvancedTouch = new Action
             {
                 ID = 37,
                 ShortName = "advancedTouch",
@@ -601,7 +580,7 @@ namespace CraftingSolver
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static Action DummyAction = new Action
+            public static readonly Action DummyAction = new Action
             {
                 ID = 0,
                 ShortName = "dummyAction",
@@ -650,11 +629,10 @@ namespace CraftingSolver
                 PreparatoryTouch,
                 Groundwork,
                 DelicateSynthesis,
-                IntensiveSynthesis,
                 TrainedEye,
                 DummyAction
             };
-            public static Action[] DependableActions = new Action[]
+            public static readonly Action[] DependableActions = new Action[]
             {
                 CarefulSynthesis,
                 DelicateSynthesis,
@@ -685,15 +663,15 @@ namespace CraftingSolver
                 Reflect,
                 TrainedEye
             };
-            public static Action[] FirstRoundActions = new Action[]
+            public static readonly Action[] FirstRoundActions = new Action[]
             {
                 MuscleMemory,
                 TrainedEye,
                 Reflect
             };
-            public static Action[] ProgressActions = DependableActions.Where(x => x.ProgressIncreaseMultiplier > 0).ToArray();
-            public static Action[] QualityActions = DependableActions.Where(x => x.QualityIncreaseMultiplier > 0).Concat(new Action[] { TrainedEye }).ToArray();
-            public static Action[] Buffs = new Action[]
+            public static readonly Action[] ProgressActions = DependableActions.Where(x => x.ProgressIncreaseMultiplier > 0).ToArray();
+            public static readonly Action[] QualityActions = DependableActions.Where(x => x.QualityIncreaseMultiplier > 0).Concat(new Action[] { TrainedEye }).ToArray();
+            public static readonly Action[] Buffs = new Action[]
             {
                 Observe,
                 Manipulation,
@@ -703,17 +681,17 @@ namespace CraftingSolver
                 Innovation,
                 GreatStrides
             };
-            public static Action[] ProgressBuffs = new Action[]
+            public static readonly Action[] ProgressBuffs = new Action[]
             {
                 Veneration,
                 //FinalAppraisal
             };
-            public static Action[] QualityBuffs = new Action[]
+            public static readonly Action[] QualityBuffs = new Action[]
             {
                 Innovation,
                 GreatStrides
             };
-            public static Action[] DurabilityActions = new Action[]
+            public static readonly Action[] DurabilityActions = new Action[]
             {
                 Manipulation,
                 MastersMend,
@@ -738,7 +716,7 @@ namespace CraftingSolver
                 }
             }
         };
-        public static Dictionary<int, int> LevelTable = new Dictionary<int, int>
+        public static readonly Dictionary<int, int> LevelTable = new()
         {
             { 51, 120 },
             { 52, 125 },
@@ -784,7 +762,7 @@ namespace CraftingSolver
         public static Dictionary<string, Dictionary<int, double>> LevelDifferenceFactors = new Dictionary<string, Dictionary<int, double>>
         {
             {
-                "control", new Dictionary<int, double>
+                "control", new()
                 {
                     { -30, 0.6 },
                     { -29, 0.64 },

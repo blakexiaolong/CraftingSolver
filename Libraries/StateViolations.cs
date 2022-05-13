@@ -1,4 +1,4 @@
-﻿namespace CraftingSolver
+﻿namespace Libraries
 {
     public class StateViolations
     {

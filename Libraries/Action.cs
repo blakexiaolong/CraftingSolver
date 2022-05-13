@@ -1,6 +1,4 @@
-﻿using System.Diagnostics;
-
-namespace CraftingSolver
+﻿namespace Libraries
 {
     public enum ActionType
     {

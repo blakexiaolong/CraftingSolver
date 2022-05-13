@@ -1,21 +1,27 @@
 ﻿using System;
 using System.Collections.Generic;
 using Libraries;
+using Action = System.Action;
 
-namespace CraftingSolver
+namespace Libraries
 {
     public class Simulator
     {
         public Crafter Crafter { get; init; }
         public Recipe Recipe { get; init; }
         public int MaxLength { get; init; }
-        public double ReliabilityIndex { get; set; }
 
         public int EffectiveCrafterLevel { get; set; }
         public int LevelDifference { get; set; }
-        public int PureLevelDifference { get; set; }
-        public double BaseProgressIncrease { get; set; }
-        public double BaseQualityIncrease { get; set; }
+        public int PureLevelDifference { get; private set; }
+        public double BaseProgressIncrease { get; private set; }
+        public double BaseQualityIncrease { get; private set; }
+        
+        public Simulator(Crafter crafter, Recipe recipe)
+        {
+            Crafter = crafter;
+            Recipe = recipe;
+        }
 
         public void Initialize()
         {
@@ -65,7 +71,7 @@ namespace CraftingSolver
                 }
                 else
                 {
-                    s.UpdateState(action, progressGain, qualityGain, useDurability ? r.DurabilityCost : 0, r.CPCost);
+                    s.UpdateState(action, progressGain, qualityGain, useDurability ? r.DurabilityCost : 0, r.CpCost);
                 }
 
                 s.Action = action;
@@ -184,16 +190,10 @@ namespace CraftingSolver
 
             return new SimulatorStep
             {
-                Craftsmanship = Crafter.Craftsmanship,
-                Control = Crafter.Control,
-                EffectiveCrafterLevel = EffectiveCrafterLevel,
-                EffectiveRecipeLevel = Recipe.Level,
-                LevelDifference = LevelDifference,
-                QualityIncreaseMultiplier = qualityIncreaseMultiplier,
                 BProgressGain = bProgressGain,
                 BQualityGain = bQualityGain,
                 DurabilityCost = durabilityCost,
-                CPCost = cpCost
+                CpCost = cpCost
             };
         }
         private double CalcProgressMultiplier(State state, Action action)

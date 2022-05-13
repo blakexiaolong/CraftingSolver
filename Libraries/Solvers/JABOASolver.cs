@@ -1,15 +1,11 @@
 ﻿using System.Diagnostics;
-
-using CraftingSolver;
-using Action = CraftingSolver.Action;
-using static CraftingSolver.Solver;
+using Action = Libraries.Action;
+using static Libraries.Solver;
 
 namespace Libraries.Solvers
 {
-    public delegate void LoggingDelegate(string message);
-
     // Just a Bunch of Actions
-    public class JABOASolver
+    public class JABOASolver : Solver.ISolver
     {
         private static double maxDurabilityCost = 88 / 30D;
         private static double minDurabilityCost = 96 / 40D;
@@ -18,9 +14,9 @@ namespace Libraries.Solvers
         private const int QUALITY_SET_MAX_LENGTH = 7;
         private const int SOLUTION_MAX_COUNT = 10000000;
 
-        private LoggingDelegate _logger = (string message) => Debug.WriteLine(message);
+        private LoggingDelegate? _logger = (string message) => Debug.WriteLine(message);
 
-        public List<Action> Run(Simulator sim, int maxTasks, LoggingDelegate loggingDelegate = null)
+        public List<Action> Run(Simulator sim, int maxTasks, LoggingDelegate? loggingDelegate = null)
         {
             if (loggingDelegate != null) _logger = loggingDelegate;
 
@@ -31,7 +27,7 @@ namespace Libraries.Solvers
             Atlas.Actions.ProgressActions.CopyTo(progressActions, 0);
             Atlas.Actions.ProgressBuffs.CopyTo(progressActions, Atlas.Actions.ProgressActions.Length);
             Action[] qualityActions = new Action[Atlas.Actions.QualityActions.Length + Atlas.Actions.QualityBuffs.Length - 1];
-            Atlas.Actions.QualityActions.Where(x => !x.Equals(Atlas.Actions.Reflect)).ToList().CopyTo(qualityActions, 0);
+            Atlas.Actions.QualityActions.CopyTo(qualityActions, 0);
             Atlas.Actions.QualityBuffs.CopyTo(qualityActions, Atlas.Actions.QualityActions.Length - 1);
             Action[] durabilityActions = Atlas.Actions.DurabilityActions.ToArray();
 
@@ -83,15 +79,19 @@ namespace Libraries.Solvers
 
                     s = LightSimulator.Simulate(sim, solution, startState);
                     score = ScoreState(sim, s);
-                    if (s == null && s.Progress < sim.Recipe.Difficulty) continue;
+                    if (s.Progress < sim.Recipe.Difficulty) continue;
                     
-                    if (score.Item1 > bestSolution.Item1)
+                    if (score > bestSolution.Item1)
                     {
-                        bestSolution = new(score.Item1, solution);
+                        bestSolution = new(score, solution);
                         _logger($"[{DateTime.Now}] Best Score: {bestSolution.Item1}\n\t{string.Join(",", bestSolution.Item2.Select(x => x.ShortName))}");
                         LightSimulator.Simulate(sim, solution, startState);
                     }
-                    qualityLists.RemoveAll(x => x.Key <= score.Item1);
+
+                    for (int i = qualityLists.Count - 1; i >= 0; i--)
+                    {
+                        if (qualityLists[i].Key <= score) qualityLists.RemoveAt(i);
+                    }
                 }
 
                 if (iterateProgress)
@@ -157,12 +157,16 @@ namespace Libraries.Solvers
             if (remainingDepth < 0) return;
             foreach (Action action in actions)
             {
+                if (remainingDepth == QUALITY_SET_MAX_LENGTH)
+                {
+
+                }
                 nodesGenerated++;
                 State state = sim.Simulate(new() { action }, node.State, useDurability: false);
                 if (state.WastedActions > 0 || !successCondition(state)) continue;
 
-                Tuple<double, bool> score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
-                if (score.Item1 <= 0) continue;
+                double score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
+                if (score <= 0) continue;
 
                 ActionNode? newNode = node.Add(action, state);
                 if (newNode == null) continue;
@@ -171,11 +175,14 @@ namespace Libraries.Solvers
                 if (ListToCpCost(path) > cpLimit) continue;
 
                 solutionCount++;
-                lists.Add(new KeyValuePair<double, List<Action>>(nodeScore(path, score.Item1), path));
+                lists.Add(new KeyValuePair<double, List<Action>>(nodeScore(path, score), path));
                 SubDFSActionTree(sim, newNode, actions, successCondition, nodeScore, remainingDepth - 1, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
 
                 newNode.State = null;
-                //newNode.Children = null;
+                newNode.Children = null;
+
+                if (remainingDepth == QUALITY_SET_MAX_LENGTH)
+                    _logger($"{action.Name} ({QUALITY_SET_MAX_LENGTH}): {nodesGenerated} generated, {solutionCount} valid");
             }
         }
         public List<KeyValuePair<double, List<Action>>> GenerateActionTree(Simulator sim, State startState, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
@@ -200,8 +207,8 @@ namespace Libraries.Solvers
                         State state = sim.Simulate(new() { action }, node.State, useDurability: false);
                         if (state.WastedActions > 0) continue;
 
-                        Tuple<double, bool> score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
-                        if (score.Item1 > 0)
+                        double score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
+                        if (score > 0)
                         {
                             ActionNode? newNode = node.Add(action, state);
                             if (newNode == null) continue;
@@ -211,7 +218,7 @@ namespace Libraries.Solvers
                                 List<Action> path = newNode.GetPath();
                                 if (ListToCpCost(path) > cpLimit) continue;
 
-                                double key = nodeScore(path, score.Item1);
+                                double key = nodeScore(path, score);
                                 if (!lists.ContainsKey(key)) lists.Add(key, new());
 
                                 lists[key].Add(path);
@@ -391,21 +398,21 @@ namespace Libraries.Solvers
                         if (s == null) continue;
 
                         var score = ScoreState(sim, s);
-                        if (s.Progress < sim.Recipe.Difficulty || zippedLists.ContainsKey(score.Item1)) continue;
+                        if (s.Progress < sim.Recipe.Difficulty || zippedLists.ContainsKey(score)) continue;
 
-                        zippedLists.Add(score.Item1, actions);
+                        zippedLists.Add(score, actions);
                     }
                 }
             }
             return zippedLists.ToList();
         }
-        private static List<Action>? ZipLists(List<Action> progress, List<Action> quality, int[] decider)
+        private static List<Action>? ZipLists(IReadOnlyList<Action> progress, IReadOnlyList<Action> quality, IReadOnlyList<int> decider)
         {
             if (decider[^1] != 0) return null;
 
             int p = 0, q = 0;
-            var actions = new Action[decider.Length];
-            for (var i = 0; i < decider.Length; i++)
+            var actions = new Action[decider.Count];
+            for (var i = 0; i < decider.Count; i++)
             {
                 if (decider[i] == 0)
                 {

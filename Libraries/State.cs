@@ -1,5 +1,4 @@
-﻿using CraftingSolver;
-using Action = CraftingSolver.Action;
+﻿using Action = Libraries.Action;
 
 namespace Libraries
 {

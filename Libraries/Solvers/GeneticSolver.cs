@@ -1,12 +1,10 @@
 ﻿using System.Collections.Concurrent;
 using System.Diagnostics;
-
-using CraftingSolver;
-using Action = CraftingSolver.Action;
+using Action = Libraries.Action;
 
 namespace Libraries.Solvers
 {
-    public class GeneticSolver
+    public class GeneticSolver : Solver.ISolver
     {
         const int MAX_GENERATION = 50;
         const int ELITE_PERCENTAGE = 10;
@@ -18,6 +16,7 @@ namespace Libraries.Solvers
         Random rand = new Random();
         Action[] genes;
         int probParentX = 100 - (PROB_MUTATION / 2);
+        private Solver.LoggingDelegate _logger = (string message) => Debug.WriteLine(message);
 
         public class ListComparer : IComparer<KeyValuePair<double, List<Action>>>
         {
@@ -170,7 +169,7 @@ namespace Libraries.Solvers
             return actions.Take(finishState.LastStep).ToList();
         }
 
-        public List<Action> Run(Simulator sim, int maxTasks)
+        public List<Action> Run(Simulator sim, int maxTasks, Solver.LoggingDelegate? loggingDelegate = null)
         {
             int generation = 1;
 

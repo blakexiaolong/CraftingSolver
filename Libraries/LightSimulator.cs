@@ -1,18 +1,9 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using Libraries;
-
-namespace CraftingSolver
+﻿namespace Libraries
 {
     internal static class LightSimulator
     {
         public static State? Simulate(Simulator simulator, List<Action> actions, State startState, bool useDurability = true)
         {
-            if (actions == null)
-            {
-                return startState;
-            }
             Recipe recipe = simulator.Recipe;
             Crafter crafter = simulator.Crafter;
             double progress = 0, quality = 0, cp = crafter.CP, durability = recipe.Durability;
@@ -72,7 +63,7 @@ namespace CraftingSolver
                     }
                 }
 
-                double qualityIncreaseMultipler = 1, baseQualityGain = 0;
+                double qualityIncreaseMultiplier = 1, baseQualityGain = 0;
                 if (action.QualityIncreaseMultiplier > 0)
                 {
                     double buffMultiplier = 1;
@@ -86,22 +77,22 @@ namespace CraftingSolver
                         buffMultiplier += 0.5;
                         countdowns[Atlas.Actions.Innovation].Used = true;
                     }
-                    qualityIncreaseMultipler *= buffMultiplier;
+                    qualityIncreaseMultiplier *= buffMultiplier;
 
-                    qualityIncreaseMultipler *= 1 + (0.1 * innerQuiet);
+                    qualityIncreaseMultiplier *= 1 + (0.1 * innerQuiet);
                     if (action.Equals(Atlas.Actions.ByregotsBlessing))
                     {
                         if (innerQuiet > 0)
                         {
-                            qualityIncreaseMultipler *= Math.Min(3, 1 + innerQuiet * 0.2);
+                            qualityIncreaseMultiplier *= Math.Min(3, 1 + innerQuiet * 0.2);
                         }
                         else
                         {
-                            qualityIncreaseMultipler *= 0;
+                            qualityIncreaseMultiplier *= 0;
                         }
                     }
 
-                    baseQualityGain = simulator.BaseQualityIncrease * action.QualityIncreaseMultiplier * qualityIncreaseMultipler;
+                    baseQualityGain = simulator.BaseQualityIncrease * action.QualityIncreaseMultiplier * qualityIncreaseMultiplier;
                     if (i == 0 && action.Equals(Atlas.Actions.TrainedEye) && simulator.PureLevelDifference >= 10 && !recipe.IsExpert)
                     {
                         baseQualityGain = recipe.MaxQuality;
@@ -201,7 +192,7 @@ namespace CraftingSolver
                         }
                         else
                         {
-                            countdowns.Add(action, new LightEffect(action.ActiveTurns));
+                            countdowns.Add(action, new(action.ActiveTurns));
                         }
                         break;
                     default:
@@ -215,7 +206,7 @@ namespace CraftingSolver
                 #endregion
             }
 
-            return new State(simulator, actions[^1])
+            return new(simulator, actions[^1])
             {
                 Step = actions.Count - 1,
                 LastStep = actions.Count - 1,

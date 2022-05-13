@@ -1,7 +1,4 @@
-﻿using System.Collections.Generic;
-using Libraries;
-
-namespace CraftingSolver
+﻿namespace Libraries
 {
     public class ActionNode
     {

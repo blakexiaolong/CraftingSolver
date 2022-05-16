@@ -2,12 +2,12 @@
 {
     public class ActionNode
     {
-        public Action Action { get; set; }
+        public Action? Action { get; set; }
         public State? State { get; set; }
-        public List<ActionNode>? Children { get; set; }
+        public List<ActionNode> Children { get; set; }
         public ActionNode? Parent { get; set; }
 
-        public ActionNode(Action action, State state, ActionNode parent)
+        public ActionNode(Action? action, State state, ActionNode parent)
         {
             Action = action;
             Children = new();
@@ -15,34 +15,18 @@
             State = state;
         }
 
-        public ActionNode? Add(Action action, State state)
+        public ActionNode Add(Action action, State state)
         {
-            if (Children != null && IncludesAction(action))
-            {
-                return null;
-            }
-            else
-            {
-                ActionNode node = new(action, state, this);
-                Children.Add(node);
-                return node;
-            }
-        }
-
-        private bool IncludesAction(Action context)
-        {
-            if (Children == null) return false;
-            foreach(var item in Children)
-                if (item.Action.Equals(context))
-                    return true;
-            return false;
+            ActionNode node = new(action, state, this);
+            Children.Add(node);
+            return node;
         }
 
         public List<Action> GetPath()
         {
             List<Action> path = new();
             ActionNode head = this;
-            while (head.Parent != null)
+            while (head.Action != null && head.Parent != null)
             {
                 path.Insert(0, head.Action);
                 head = head.Parent;

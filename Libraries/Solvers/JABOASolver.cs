@@ -1,27 +1,28 @@
-﻿using System.Diagnostics;
-using Action = Libraries.Action;
+﻿using System.Collections;
+using System.Diagnostics;
 using static Libraries.Solver;
 
 namespace Libraries.Solvers
 {
     // Just a Bunch of Actions
-    public class JABOASolver : Solver.ISolver
+    public class JaboaSolver : ISolver
     {
-        private static double maxDurabilityCost = 88 / 30D;
-        private static double minDurabilityCost = 96 / 40D;
+        private const double MaxDurabilityCost = 88 / 30D;
+        private const double MinDurabilityCost = 96 / 40D;
 
-        private const int PROGRESS_SET_MAX_LENGTH = 7;
-        private const int QUALITY_SET_MAX_LENGTH = 7;
-        private const int SOLUTION_MAX_COUNT = 10000000;
+        private const int ProgressSetMaxLength = 7;
+        private const int QualitySetMaxLength = 7;
 
-        private LoggingDelegate? _logger = (string message) => Debug.WriteLine(message);
+        private const int ActionBinarySize = 5;
 
-        public List<Action> Run(Simulator sim, int maxTasks, LoggingDelegate? loggingDelegate = null)
+        private LoggingDelegate? _logger;
+
+        public List<Action?> Run(Simulator sim, int maxTasks, LoggingDelegate? loggingDelegate = null)
         {
             if (loggingDelegate != null) _logger = loggingDelegate;
 
-            int cp = sim.Crafter.CP + (int)(sim.Recipe.Durability * maxDurabilityCost);
-            State startState = sim.Simulate(null, new State(sim, null));
+            int cp = sim.Crafter.CP + (int)(sim.Recipe.Durability * MaxDurabilityCost);
+            State startState = sim.Simulate(new List<Action>(), new(sim, null));
 
             Action[] progressActions = new Action[Atlas.Actions.ProgressActions.Length + Atlas.Actions.ProgressBuffs.Length];
             Atlas.Actions.ProgressActions.CopyTo(progressActions, 0);
@@ -32,19 +33,20 @@ namespace Libraries.Solvers
             Action[] durabilityActions = Atlas.Actions.DurabilityActions.ToArray();
 
             _logger($"\n[{DateTime.Now}] Generating Progress Combinations");
-            List<KeyValuePair<double, List<Action>>> progressLists = GenerateActionTree(sim, startState, progressActions, ProgressSuccess, ProgressScore, PROGRESS_SET_MAX_LENGTH, cp, ignoreProgress: false);
-            int cpCost = (int)ListToCpCost(progressLists.First().Value);
-            cp = sim.Crafter.CP + (int)(sim.Recipe.Durability * maxDurabilityCost) - cpCost;
-            _logger($"[{DateTime.Now}] Good Lists Found: {progressLists.Count()}\n\t{string.Join(",", progressLists.First().Value.Select(x => x.ShortName))}");
+            List<KeyValuePair<double, bool[]>> progressLists = GenerateDFSActionTree(sim, startState, progressActions, ProgressFailure, ProgressSuccess, ProgressScore, ProgressSetMaxLength, cp, ignoreProgress: false);
+            int cpCost = (int)ListToCpCost(BinaryToActions(progressLists.First().Value));
+            cp = sim.Crafter.CP + (int)(sim.Recipe.Durability * MaxDurabilityCost) - cpCost;
+            _logger($"[{DateTime.Now}] Good Lists Found: {progressLists.Count}\n\t{string.Join(",", BinaryToActions(progressLists.First().Value).Select(x => x.ShortName))}");
             _logger($"[{DateTime.Now}] CP Cost: {cpCost}; CP Remaining: {cp}");
 
             _logger($"\n[{DateTime.Now}] Generating Quality Combinations");
-            //List<KeyValuePair<double, List<Action>>> qualityLists = GenerateActionTree(sim, startState, qualityActions, QualitySuccess, QualityScore, QUALITY_SET_MAX_LENGTH, cp, ignoreProgress: true);
-            List<KeyValuePair<double, List<Action>>> qualityLists = GenerateDFSActionTree(sim, startState, qualityActions, QualitySuccess, QualityScore, QUALITY_SET_MAX_LENGTH, cp, ignoreProgress: true);
-            cpCost = (int)ListToCpCost(qualityLists.First().Value);
+            List<KeyValuePair<double, bool[]>> qualityLists = GenerateDFSActionTree(sim, startState, qualityActions, QualityFailure, QualitySuccess, QualityScore, QualitySetMaxLength, cp, ignoreProgress: true);
+            cpCost = (int)ListToCpCost(BinaryToActions(qualityLists.First().Value));
             cp -= cpCost;
-            _logger($"[{DateTime.Now}] Good Lists Found: {qualityLists.Count()}\n\t{string.Join(",", qualityLists.First().Value.Select(x => x.ShortName))}");
+            _logger($"[{DateTime.Now}] Good Lists Found: {qualityLists.Count}\n\t{string.Join(",", BinaryToActions(qualityLists.First().Value).Select(x => x.ShortName))}");
             _logger($"[{DateTime.Now}] CP Cost: {cpCost}; CP Remaining: {cp}");
+
+            return null;
 
             // zip progress and quality together
             bool skipOut = false;
@@ -52,8 +54,8 @@ namespace Libraries.Solvers
             Tuple<double, List<Action>> bestSolution = new(0, new List<Action>());
             for (int qualityIx = 0; qualityIx < qualityLists.Count && !skipOut; qualityIx++)
             {
-                var qualityList = qualityLists[qualityIx].Value;
-                var progressList = progressLists[progressIx].Value;
+                var qualityList = BinaryToActions(qualityLists[qualityIx].Value);
+                var progressList = BinaryToActions(progressLists[progressIx].Value);
 
                 double cpRemaining = sim.Crafter.CP - ListToCpCost(progressList, considerDurability: false) + ListToCpCost(qualityList, considerDurability: false);
                 int durabilityUsed = progressList.Sum(x => x.DurabilityCost) + qualityList.Sum(x => x.DurabilityCost) - progressList[^1].DurabilityCost; // this doesn't consider the last progress action, since the game doesn't either
@@ -69,15 +71,17 @@ namespace Libraries.Solvers
                     var actions = ZipLists(progressList, qualityList, merger);
                     if (actions == null) continue;
 
-                    State s = LightSimulator.Simulate(sim, actions, startState, useDurability: false);
+                    State s = sim.Simulate(actions, startState, useDurability: false);
                     if (s == null || s.Progress < sim.Recipe.Difficulty) continue;
                     if (s.Step == actions.Count && s.Progress < sim.Recipe.Difficulty) iterateProgress = true;
 
                     var score = ScoreState(sim, s);
+                    if (score <= 0) continue;
+                    
                     List<Action>? solution = InsertDurability(sim, startState, new() { actions }, durabilityActions, s.Cp);
                     if (solution == null) continue;
 
-                    s = LightSimulator.Simulate(sim, solution, startState);
+                    s = sim.Simulate(solution, startState);
                     score = ScoreState(sim, s);
                     if (s.Progress < sim.Recipe.Difficulty) continue;
                     
@@ -85,7 +89,7 @@ namespace Libraries.Solvers
                     {
                         bestSolution = new(score, solution);
                         _logger($"[{DateTime.Now}] Best Score: {bestSolution.Item1}\n\t{string.Join(",", bestSolution.Item2.Select(x => x.ShortName))}");
-                        LightSimulator.Simulate(sim, solution, startState);
+                        sim.Simulate(solution, startState);
                     }
 
                     for (int i = qualityLists.Count - 1; i >= 0; i--)
@@ -107,16 +111,15 @@ namespace Libraries.Solvers
 
             if (bestSolution.Item1 > 0)
             {
-                LightSimulator.Simulate(sim, bestSolution.Item2, startState);
+                sim.Simulate(bestSolution.Item2, startState);
                 return bestSolution.Item2;
             }
-            else
-            {
-                return null;
-            }
+
+            return null;
         }
 
         public delegate bool SuccessCondition(State state);
+
         public static bool ProgressSuccess(State state)
         {
             return state.Success;
@@ -126,8 +129,18 @@ namespace Libraries.Solvers
             return true;
         }
 
-        public delegate double NodeScore(List<Action> path, double score);
-        public double ProgressScore(List<Action> path, double score)
+        public delegate bool FailureCondition(State state);
+        public static bool ProgressFailure(State state)
+        {
+            return false;
+        }
+        public static bool QualityFailure(State state)
+        {
+            return false;
+        }
+
+        public delegate double NodeScore(List<Action?> path, double score);
+        public double ProgressScore(List<Action?> path, double score)
         {
             return ListToCpCost(path);
         }
@@ -136,128 +149,62 @@ namespace Libraries.Solvers
             return -1 * score;
         }
 
-        private List<KeyValuePair<double, List<Action>>> GenerateDFSActionTree(Simulator sim, State startState, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
+        private List<KeyValuePair<double, bool[]>> GenerateDFSActionTree(Simulator sim, State startState, Action?[] actions, FailureCondition failureCondition, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
         {
             long nodesGenerated = 0, solutionCount = 0;
-            ActionNode head = new(null, startState, null);
-            List<KeyValuePair<double, List<Action>>> lists = new();
-            SubDFSActionTree(sim, head, actions, successCondition, nodeScore, maxLength, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
+            ActionNode head = new ActionNode(null, startState, null);
+            List<KeyValuePair<double, bool[]>> lists = new();
+            SubDFSActionTree(sim, head, actions, failureCondition, successCondition, nodeScore, maxLength, maxLength, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
             _logger($"[{DateTime.Now}] Nodes Generated: {nodesGenerated}");
             _logger($"[{DateTime.Now}] Lists Found: {lists.Count}");
 
             lists = lists.OrderBy(x => x.Key).ToList();
             _logger($"[{DateTime.Now}] Sorted");
 
-            var s = sim.Simulate(lists.First().Value, startState, useDurability: false);
+            var unused = sim.Simulate(BinaryToActions(lists.First().Value), startState, useDurability: false);
             return lists;
         }
-
-        private void SubDFSActionTree(Simulator sim, ActionNode node, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int remainingDepth, double cpLimit, bool ignoreProgress, ref List<KeyValuePair<double, List<Action>>> lists, ref long nodesGenerated, ref long solutionCount)
+        private void SubDFSActionTree(Simulator sim, ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress, ref List<KeyValuePair<double, bool[]>> lists, ref long nodesGenerated, ref long solutionCount)
         {
-            if (remainingDepth < 0) return;
+            if (remainingDepth <= 0) return;
             foreach (Action action in actions)
             {
-                if (remainingDepth == QUALITY_SET_MAX_LENGTH)
-                {
-
-                }
-                nodesGenerated++;
-                State state = sim.Simulate(new() { action }, node.State, useDurability: false);
-                if (state.WastedActions > 0 || !successCondition(state)) continue;
+                State state = sim.Simulate(action, node.State, useDurability: false);
+                if (state.WastedActions > 0 || failureCondition(state)) continue;
 
                 double score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
                 if (score <= 0) continue;
 
-                ActionNode? newNode = node.Add(action, state);
-                if (newNode == null) continue;
-
-                List<Action> path = newNode.GetPath();
+                List<Action> path = node.GetPath();
+                path.Add(action);
                 if (ListToCpCost(path) > cpLimit) continue;
 
-                solutionCount++;
-                lists.Add(new KeyValuePair<double, List<Action>>(nodeScore(path, score), path));
-                SubDFSActionTree(sim, newNode, actions, successCondition, nodeScore, remainingDepth - 1, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
+                nodesGenerated++;
+                ActionNode newNode = node.Add(action, state);
+                SubDFSActionTree(sim, newNode, actions, failureCondition, successCondition, nodeScore, maxLength, remainingDepth - 1, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
 
-                newNode.State = null;
-                newNode.Children = null;
+                if (successCondition(state))
+                {
+                    solutionCount++;
+                    lists.Add(new(nodeScore(path, score), ActionsToBinary(path)));
+                }
+                if (newNode.Parent != null && newNode.Parent.Children != null) newNode.Parent.Children.Remove(newNode);
 
-                if (remainingDepth == QUALITY_SET_MAX_LENGTH)
-                    _logger($"{action.Name} ({QUALITY_SET_MAX_LENGTH}): {nodesGenerated} generated, {solutionCount} valid");
+                if (remainingDepth == maxLength)
+                {
+                    _logger($"{action.ShortName} {{{maxLength}}}: {nodesGenerated} generated, {solutionCount} solutions");
+                }
             }
         }
-        public List<KeyValuePair<double, List<Action>>> GenerateActionTree(Simulator sim, State startState, Action[] actions, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
+
+        private static double ListToCpCost(bool[] list, bool considerDurability = true)
         {
-            long round = 0, nodesGenerated = 0, nodesRemoved = 0, solutionCount = 0;
-            ActionNode head = new(null, startState, null);
-            List<ActionNode> nodesToExpand = new() { head };
-            SortedList<double, List<List<Action>>> lists = new();
-
-            do
-            {
-                List<ActionNode> nextNodes = new();
-                for (int i = 0; i < nodesToExpand.Count; i++)
-                {
-                    ActionNode node = nodesToExpand[i];
-                    if (node.Parent == null && round > 0) continue;
-                    if (node.State == null) continue;
-
-                    foreach (Action action in actions)
-                    {
-                        nodesGenerated++;
-                        State state = sim.Simulate(new() { action }, node.State, useDurability: false);
-                        if (state.WastedActions > 0) continue;
-
-                        double score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
-                        if (score > 0)
-                        {
-                            ActionNode? newNode = node.Add(action, state);
-                            if (newNode == null) continue;
-
-                            if (successCondition(state))
-                            {
-                                List<Action> path = newNode.GetPath();
-                                if (ListToCpCost(path) > cpLimit) continue;
-
-                                double key = nodeScore(path, score);
-                                if (!lists.ContainsKey(key)) lists.Add(key, new());
-
-                                lists[key].Add(path);
-                                solutionCount++;
-                                while (solutionCount > SOLUTION_MAX_COUNT)
-                                {
-                                    var removeKey = lists.Keys[^1];
-                                    solutionCount -= lists[removeKey].Count;
-                                    foreach (var removeNode in lists[removeKey].Select(list => head.GetNode(list)).Where(removeNode => removeNode != null))
-                                    {
-                                        removeNode.Parent.Children.Remove(removeNode);
-                                        removeNode.Parent = null;
-                                        nodesRemoved++;
-                                    }
-                                    lists.Remove(removeKey);
-                                }
-                            }
-                            nextNodes.Add(newNode);
-                        }
-                    }
-
-                    // clear state to save memory
-                    node.State = null;
-                }
-
-                _logger($"{{{round}}} {nodesGenerated} nodes generated, {nodesRemoved} nodes removed; {nodesToExpand.Count} nodes to expand");
-                round++;
-                nodesToExpand = nextNodes;
-            } while (round < maxLength && nodesToExpand.Any());
-
-            _logger($"[{DateTime.Now}] Nodes Generated: {nodesGenerated}");
-            var s = sim.Simulate(lists.First().Value.First(), startState, useDurability: false);
-            lists.First().Value.SelectMany(x => new List<Action> {  });
-            return lists.SelectMany(x => x.Value.Select(y => new KeyValuePair<double, List<Action>>(x.Key, y))).ToList();
+            return ListToCpCost(BinaryToActions(list));
         }
-
         public static double ListToCpCost(List<Action> list, bool considerDurability = true)
         {
-            double cpTotal = list.Sum(x => x.CPCost) + (considerDurability ? list.Sum(x => x.DurabilityCost) * minDurabilityCost : 0);
+            double cpTotal = list.Sum(x => x.CPCost);
+            double durabilityTotal = considerDurability ? list.Sum(x => x.DurabilityCost) * MinDurabilityCost : 0;
             int observeCost = (list.Count(x => x.Equals(Atlas.Actions.FocusedSynthesis)) + list.Count(x => x.Equals(Atlas.Actions.FocusedTouch))) * Atlas.Actions.Observe.CPCost;
 
             int comboSavings = 0;
@@ -275,12 +222,12 @@ namespace Libraries.Solvers
                 index++;
             }
 
-            return cpTotal + observeCost - comboSavings;
+            return cpTotal + observeCost + durabilityTotal - comboSavings;
         }
 
-        private static List<List<Action>> Iterate(List<Action> prevSet, Dictionary<Action, int> actionChoices, bool qualityOnly)
+        private static List<List<Action?>> Iterate(List<Action?> prevSet, Dictionary<Action?, int> actionChoices, bool qualityOnly)
         {
-            List<List<Action>> newSets = new List<List<Action>>();
+            List<List<Action?>> newSets = new List<List<Action?>>();
             Dictionary<Action, int> counts = new Dictionary<Action, int>();
             foreach (var group in prevSet.GroupBy(x => x.ID))
             {
@@ -290,11 +237,11 @@ namespace Libraries.Solvers
             var remainingActions = actionChoices.Where(x => !counts.ContainsKey(x.Key) || x.Value > counts[x.Key]).Select(x => x.Key);
             if (!qualityOnly && !remainingActions.Any(x => x.ProgressIncreaseMultiplier > 0)) return newSets;
 
-            foreach (Action action in remainingActions)
+            foreach (Action? action in remainingActions)
             {
                 if (action == prevSet[^1] && Atlas.Actions.Buffs.Contains(action)) continue;
 
-                List<Action> newSet = prevSet.ToList();
+                List<Action?> newSet = prevSet.ToList();
                 newSet.Add(action);
                 newSets.Add(newSet);
             }
@@ -312,13 +259,13 @@ namespace Libraries.Solvers
             return true;
         }
 
-        private static List<Action>? InsertDurability(Simulator sim, State startState, List<List<Action>> actions, Action[] durabilityActions, double cpMax)
+        private static List<Action>? InsertDurability(Simulator sim, State startState, List<List<Action?>> actions, Action?[] durabilityActions, double cpMax)
         {
             List<List<Action>> durabilitySolutions = new();
             Dictionary<Action, int> actionChoices = new();
 
             foreach (var action in durabilityActions) actionChoices.Add(action, 999);
-            IEnumerable<List<Action>> results = durabilityActions.Select(action => new List<Action> { action });
+            IEnumerable<List<Action?>> results = durabilityActions.Select(action => new List<Action> { action });
 
             do
             {
@@ -329,7 +276,7 @@ namespace Libraries.Solvers
             var solution = ZipListSets(sim, startState, actions, durabilitySolutions, true);
             return solution.Any() ? solution[^1].Value : null;
         }
-        public static double MaxDurabilityGain(List<Action> durabiltyActions, List<Action> actions)
+        public static double MaxDurabilityGain(List<Action?> durabiltyActions, List<Action> actions)
         {
             double maxGain = 0;
             int wnIndex = 0;
@@ -383,49 +330,541 @@ namespace Libraries.Solvers
                 foreach (var rightList in right)
                 {
                     if (ListToCpCost(leftList, false) + ListToCpCost(rightList, false) > sim.Crafter.CP) continue;
-                    if (leftList.Sum(x => x.DurabilityCost) - leftList[^1].DurabilityCost > sim.Recipe.Durability +
-                        MaxDurabilityGain(rightList, leftList.OrderBy(x => x.DurabilityCost).ToList())) continue;
+                    if (leftList.Sum(x => x.DurabilityCost) - leftList[^1].DurabilityCost > sim.Recipe.Durability + MaxDurabilityGain(rightList, leftList.OrderBy(x => x.DurabilityCost).ToList())) continue;
 
                     var merger = new int[leftList.Count + rightList.Count];
                     for (var k = 0; k < merger.Length; k++) merger[k] = 0;
 
                     while (Iterate(merger, merger.Length - 1))
                     {
-                        var actions = ZipLists(leftList, rightList, merger);
-                        if (actions == null) continue;
+                        if (merger[^1] != 0) continue;
+            
+                        int p = 0, q = 0;
+                        double score;
+                        State s = startState;
+                        for (var i = 0; i < merger.Length; i++)
+                        {
+                            if (merger[i] == 0)
+                            {
+                                if (p >= leftList.Count) break;
+                                s = sim.Simulate(leftList[p++], s, useDurability);
+                            }
+                            else
+                            {
+                                if (q >= rightList.Count) break;
+                                s = sim.Simulate(rightList[q++], s, useDurability);
+                            }
 
-                        var s = LightSimulator.Simulate(sim, actions.ToList(), startState, useDurability);
-                        if (s == null) continue;
-
-                        var score = ScoreState(sim, s);
-                        if (s.Progress < sim.Recipe.Difficulty || zippedLists.ContainsKey(score)) continue;
-
-                        zippedLists.Add(score, actions);
+                            score = ScoreState(sim, s, false);
+                            if (s.WastedActions > 0 || score <= 0 || zippedLists.ContainsKey(score)) break;
+                            
+                            if (i == merger.Length - 1 && s.Progress >= sim.Recipe.Difficulty)
+                            {
+                                p = 0; q = 0;
+                                var actions = new List<Action>(merger.Length);
+                                foreach (var t in merger)
+                                {
+                                    actions.Add(t == 0 ? leftList[p++] : rightList[q++]);
+                                }
+                                zippedLists.Add(score, actions);
+                            }
+                        }
                     }
                 }
             }
             return zippedLists.ToList();
         }
-        private static List<Action>? ZipLists(IReadOnlyList<Action> progress, IReadOnlyList<Action> quality, IReadOnlyList<int> decider)
-        {
-            if (decider[^1] != 0) return null;
 
-            int p = 0, q = 0;
-            var actions = new Action[decider.Count];
-            for (var i = 0; i < decider.Count; i++)
+        public static List<Action>? ZipLists(List<Action> left, List<Action> right, int[] merger)
+        {
+            int lCount = 0, rCount = 0;
+            for (int i = 0; i < merger.Length; i++)
             {
-                if (decider[i] == 0)
+                if (merger[i] == 0)
                 {
-                    if (p >= progress.Count) return null;
-                    actions[i] = progress[p++];
+                    lCount++;
+                    if (lCount > left.Count) return null;
                 }
                 else
                 {
-                    if (q >= quality.Count) return null;
-                    actions[i] = quality[q++];
+                    rCount++;
+                    if (rCount > right.Count) return null;
                 }
             }
-            return actions.ToList();
+            
+            int l = 0, r = 0;
+            List<Action> actions = new List<Action>(merger.Length);
+            for (int i = 0; i < merger.Length; i++)
+            {
+                actions.Insert(i, merger[i] == 0 ? left[l++] : right[r++]);
+            }
+
+            return actions;
+        }
+
+        public static List<Action> BinaryToActions(bool[] bits)
+        {
+            List<Action> actions = new(bits.Length / ActionBinarySize);
+            for (int bigIndex = 0; bigIndex < bits.Length; bigIndex += ActionBinarySize)
+            {
+                if (bits[bigIndex]) // 1
+                {
+                    if (bits[bigIndex + 1]) // 11
+                    {
+                        if (bits[bigIndex + 2]) // 111
+                        {
+                            if (bits[bigIndex + 3]) // 1111
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    // 31
+                                }
+                                else
+                                {
+                                    // 30
+                                }
+                            }
+                            else // 1110
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    // 29
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.AdvancedTouch);
+                                }
+                            }
+                        }
+                        else // 110
+                        {
+                            if (bits[bigIndex + 3]) // 1101
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.PrudentSynthesis);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.TrainedFinesse);
+                                }
+                            }
+                            else // 1100
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.TrainedEye);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.DelicateSynthesis);
+                                }
+                            }
+                        }
+                    }
+                    else // 10
+                    {
+                        if (bits[bigIndex + 2]) // 101
+                        {
+                            if (bits[bigIndex + 3]) // 1011
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.Groundwork);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.PreparatoryTouch);
+                                }
+                            }
+                            else // 1010
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.Reflect);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.FocusedTouch);
+                                }
+                            }
+                        }
+                        else // 100
+                        {
+                            if (bits[bigIndex + 3]) // 1001
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.FocusedSynthesis);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.PrudentTouch);
+                                }
+                            }
+                            else // 1000
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.MuscleMemory);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.PreciseTouch);
+                                }
+                            }
+                        }
+                    }
+                }
+                else // 0
+                {
+                    if (bits[bigIndex + 1]) // 01
+                    {
+                        if (bits[bigIndex + 2]) // 011
+                        {
+                            if (bits[bigIndex + 3]) // 0111
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.GreatStrides);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.Innovation);
+                                }
+                            }
+                            else // 0110
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.Veneration);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.WasteNot2);
+                                }
+                            }
+                        }
+                        else // 010
+                        {
+                            if (bits[bigIndex + 3]) // 0101
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.WasteNot);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.Manipulation);
+                                }
+                            }
+                            else // 0100
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.InnerQuiet);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.TricksOfTheTrade);
+                                }
+                            }
+                        }
+                    }
+                    else // 00
+                    {
+                        if (bits[bigIndex + 2]) // 001
+                        {
+                            if (bits[bigIndex + 3]) // 0011
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.MastersMend);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.ByregotsBlessing);
+                                }
+                            }
+                            else // 0010
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.StandardTouch);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.BasicTouch);
+                                }
+                            }
+                        }
+                        else // 000
+                        {
+                            if (bits[bigIndex + 3]) // 0001
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.CarefulSynthesis);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.BasicSynth);
+                                }
+                            }
+                            else // 0000
+                            {
+                                if (bits[bigIndex + 4])
+                                {
+                                    actions.Add(Atlas.Actions.Observe);
+                                }
+                                else
+                                {
+                                    actions.Add(Atlas.Actions.DummyAction);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return actions;
+        }
+        public static bool[] ActionsToBinary(List<Action> actions)
+        {
+            bool[] bitArray = new bool[actions.Count * ActionBinarySize];
+            int bigIndex = 0;
+            for (int i = 0; i < actions.Count; i++)
+            {
+                switch (actions[i].ID)
+                {
+                    case 0:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 1:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 2:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 3:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 4:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 5:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 6:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 7:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 8:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 9:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 10:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 11:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 12:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 13:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 14:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 15:
+                        bitArray[bigIndex] = false;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 16:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 17:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 18:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 19:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 20:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 21:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 22:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 23:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = false;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 24:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 25:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 26:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 27:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = false;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 28:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 29:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = false;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+                    case 30:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = false;
+                        break;
+                    case 31:
+                        bitArray[bigIndex] = true;
+                        bitArray[bigIndex + 1] = true;
+                        bitArray[bigIndex + 2] = true;
+                        bitArray[bigIndex + 3] = true;
+                        bitArray[bigIndex + 4] = true;
+                        break;
+
+                }
+                bigIndex += ActionBinarySize;
+            }
+            return bitArray;
         }
     }
 }

@@ -22,7 +22,7 @@
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static readonly Action BasicSynth = new Action
+            public static Action BasicSynth = new Action
             {
                 ID = 2,
                 ShortName = "basicSynth",
@@ -42,7 +42,7 @@
             };
             public static Action CarefulSynthesis = new Action
             {
-                ID = 4,
+                ID = 3,
                 ShortName = "carefulSynthesis",
                 Name = "Careful Synthesis",
                 DurabilityCost = 10,
@@ -58,45 +58,9 @@
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static readonly Action RapidSynthesis = new Action
-            {
-                ID = 5,
-                ShortName = "rapidSynthesis",
-                Name = "Rapid Synthesis",
-                DurabilityCost = 10,
-                CPCost = 0,
-                SuccessProbability = 0.5,
-                QualityIncreaseMultiplier = 0.0,
-                ProgressIncreaseMultiplier = 2.5,
-                ActionType = ActionType.Immediate,
-                ActiveTurns = 1,
-                Class = "All",
-                Level = 9,
-                OnGood = false,
-                OnExcellent = false,
-                OnPoor = false
-            };
-            public static readonly Action FlawlessSynthesis = new Action
-            {
-                ID = 6,
-                ShortName = "flawlessSynthesis",
-                Name = "Flawless Synthesis",
-                DurabilityCost = 10,
-                CPCost = 15,
-                SuccessProbability = 0.9,
-                QualityIncreaseMultiplier = 0.0,
-                ProgressIncreaseMultiplier = 1.0,
-                ActionType = ActionType.Immediate,
-                ActiveTurns = 1,
-                Class = "All",
-                Level = 37,
-                OnGood = false,
-                OnExcellent = false,
-                OnPoor = false
-            };
             public static readonly Action BasicTouch = new Action
             {
-                ID = 7,
+                ID = 4,
                 ShortName = "basicTouch",
                 Name = "Basic Touch",
                 DurabilityCost = 10,
@@ -114,7 +78,7 @@
             };
             public static readonly Action StandardTouch = new Action
             {
-                ID = 8,
+                ID = 5,
                 ShortName = "standardTouch",
                 Name = "Standard Touch",
                 DurabilityCost = 10,
@@ -130,27 +94,9 @@
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static readonly Action HastyTouch = new Action
-            {
-                ID = 9,
-                ShortName = "hastyTouch",
-                Name = "Hasty Touch",
-                DurabilityCost = 10,
-                CPCost = 0,
-                SuccessProbability = 0.6,
-                QualityIncreaseMultiplier = 1.0,
-                ProgressIncreaseMultiplier = 0.0,
-                ActionType = ActionType.Immediate,
-                ActiveTurns = 1,
-                Class = "All",
-                Level = 9,
-                OnGood = false,
-                OnExcellent = false,
-                OnPoor = false
-            };
             public static readonly Action ByregotsBlessing = new Action
             {
-                ID = 10,
+                ID = 6,
                 ShortName = "byregotsBlessing",
                 Name = "Byregot's Blessing",
                 DurabilityCost = 10,
@@ -168,7 +114,7 @@
             };
             public static readonly Action MastersMend = new Action
             {
-                ID = 11,
+                ID = 7,
                 ShortName = "mastersMend",
                 Name = "Master's Mend",
                 DurabilityCost = 0,
@@ -186,7 +132,7 @@
             };
             public static readonly Action TricksOfTheTrade = new Action
             {
-                ID = 12,
+                ID = 8,
                 ShortName = "tricksOfTheTrade",
                 Name = "Tricks of the Trade",
                 DurabilityCost = 0,
@@ -204,7 +150,7 @@
             };
             public static readonly Action InnerQuiet = new Action
             {
-                ID = 13,
+                ID = 9,
                 ShortName = "innerQuiet",
                 Name = "Inner Quiet",
                 DurabilityCost = 0,
@@ -222,7 +168,7 @@
             };
             public static readonly Action Manipulation = new Action
             {
-                ID = 14,
+                ID = 10,
                 ShortName = "manipulation",
                 Name = "Manipulation",
                 DurabilityCost = 0,
@@ -240,7 +186,7 @@
             };
             public static readonly Action WasteNot = new Action
             {
-                ID = 15,
+                ID = 11,
                 ShortName = "wasteNot",
                 Name = "Waste Not",
                 DurabilityCost = 0,
@@ -258,7 +204,7 @@
             };
             public static readonly Action WasteNot2 = new Action
             {
-                ID = 16,
+                ID = 12,
                 ShortName = "wasteNot2",
                 Name = "Waste Not II",
                 DurabilityCost = 0,
@@ -276,7 +222,7 @@
             };
             public static readonly Action Veneration = new Action
             {
-                ID = 17,
+                ID = 13,
                 ShortName = "veneration",
                 Name = "Veneration",
                 DurabilityCost = 0,
@@ -294,7 +240,7 @@
             };
             public static readonly Action Innovation = new Action
             {
-                ID = 18,
+                ID = 14,
                 ShortName = "innovation",
                 Name = "Innovation",
                 DurabilityCost = 0,
@@ -312,7 +258,7 @@
             };
             public static readonly Action GreatStrides = new Action
             {
-                ID = 19,
+                ID = 15,
                 ShortName = "greatStrides",
                 Name = "Great Strides",
                 DurabilityCost = 0,
@@ -330,7 +276,7 @@
             };
             public static readonly Action PreciseTouch = new Action
             {
-                ID = 20,
+                ID = 16,
                 ShortName = "preciseTouch",
                 Name = "Precise Touch",
                 DurabilityCost = 10,
@@ -348,7 +294,7 @@
             };
             public static readonly Action MuscleMemory = new Action
             {
-                ID = 21,
+                ID = 17,
                 ShortName = "muscleMemory",
                 Name = "Muscle Memory",
                 DurabilityCost = 10,
@@ -364,27 +310,9 @@
                 OnExcellent = false,
                 OnPoor = false
             };
-            public static readonly Action RapidSynthesis2 = new Action
-            {
-                ID = 24,
-                ShortName = "rapidSynthesis2",
-                Name = "Rapid Synthesis",
-                DurabilityCost = 10,
-                CPCost = 0,
-                SuccessProbability = 0.5,
-                QualityIncreaseMultiplier = 0.0,
-                ProgressIncreaseMultiplier = 5.0,
-                ActionType = ActionType.Immediate,
-                ActiveTurns = 1,
-                Class = "All",
-                Level = 63,
-                OnGood = false,
-                OnExcellent = false,
-                OnPoor = false
-            };
             public static readonly Action PrudentTouch = new Action
             {
-                ID = 26,
+                ID = 18,
                 ShortName = "prudentTouch",
                 Name = "Prudent Touch",
                 DurabilityCost = 5,
@@ -402,7 +330,7 @@
             };
             public static readonly Action FocusedSynthesis = new Action
             {
-                ID = 27,
+                ID = 19,
                 ShortName = "focusedSynthesis",
                 Name = "Focused Synthesis",
                 DurabilityCost = 10,
@@ -420,7 +348,7 @@
             };
             public static readonly Action FocusedTouch = new Action
             {
-                ID = 28,
+                ID = 20,
                 ShortName = "focusedTouch",
                 Name = "Focused Touch",
                 DurabilityCost = 10,
@@ -438,7 +366,7 @@
             };
             public static readonly Action Reflect = new Action
             {
-                ID = 29,
+                ID = 21,
                 ShortName = "reflect",
                 Name = "Reflect",
                 DurabilityCost = 10,
@@ -456,7 +384,7 @@
             };
             public static readonly Action PreparatoryTouch = new Action
             {
-                ID = 30,
+                ID = 22,
                 ShortName = "preparatoryTouch",
                 Name = "Preparatory Touch",
                 DurabilityCost = 20,
@@ -474,7 +402,7 @@
             };
             public static Action Groundwork = new Action
             {
-                ID = 31,
+                ID = 23,
                 ShortName = "groundwork",
                 Name = "Groundwork",
                 DurabilityCost = 20,
@@ -492,7 +420,7 @@
             };
             public static readonly Action DelicateSynthesis = new Action
             {
-                ID = 32,
+                ID = 24,
                 ShortName = "delicateSynthesis",
                 Name = "Delicate Synthesis",
                 DurabilityCost = 10,
@@ -510,7 +438,7 @@
             };
             public static readonly Action TrainedEye = new Action
             {
-                ID = 34,
+                ID = 25,
                 ShortName = "trainedEye",
                 Name = "Trained Eye",
                 DurabilityCost = 10,
@@ -528,7 +456,7 @@
             };
             public static readonly Action TrainedFinesse = new Action
             {
-                ID = 35,
+                ID = 26,
                 ShortName = "trainedFinesse",
                 Name = "Trained Finesse",
                 DurabilityCost = 0,
@@ -546,7 +474,7 @@
             };
             public static readonly Action PrudentSynthesis = new Action
             {
-                ID = 36,
+                ID = 27,
                 ShortName = "prudentSynthesis",
                 Name = "Prudent Synthesis",
                 DurabilityCost = 5,
@@ -564,7 +492,7 @@
             };
             public static readonly Action AdvancedTouch = new Action
             {
-                ID = 37,
+                ID = 28,
                 ShortName = "advancedTouch",
                 Name = "Advanced Touch",
                 DurabilityCost = 10,
@@ -599,16 +527,12 @@
                 OnPoor = false
             };
 
-            public static Action[] AllActions = new Action[]
-            {
+            public static Action[] AllActions = {
                 Observe,
                 BasicSynth,
                 CarefulSynthesis,
-                RapidSynthesis,
-                FlawlessSynthesis,
                 BasicTouch,
                 StandardTouch,
-                HastyTouch,
                 ByregotsBlessing,
                 MastersMend,
                 TricksOfTheTrade,
@@ -621,7 +545,6 @@
                 GreatStrides,
                 PreciseTouch,
                 MuscleMemory,
-                RapidSynthesis2,
                 PrudentTouch,
                 FocusedSynthesis,
                 FocusedTouch,
@@ -632,8 +555,7 @@
                 TrainedEye,
                 DummyAction
             };
-            public static readonly Action[] DependableActions = new Action[]
-            {
+            public static readonly Action[] DependableActions = {
                 CarefulSynthesis,
                 DelicateSynthesis,
                 Groundwork,
@@ -663,16 +585,14 @@
                 Reflect,
                 TrainedEye
             };
-            public static readonly Action[] FirstRoundActions = new Action[]
-            {
+            public static readonly Action[] FirstRoundActions = {
                 MuscleMemory,
                 TrainedEye,
                 Reflect
             };
             public static readonly Action[] ProgressActions = DependableActions.Where(x => x.ProgressIncreaseMultiplier > 0).ToArray();
-            public static readonly Action[] QualityActions = DependableActions.Where(x => x.QualityIncreaseMultiplier > 0).Concat(new Action[] { TrainedEye }).ToArray();
-            public static readonly Action[] Buffs = new Action[]
-            {
+            public static readonly Action[] QualityActions = DependableActions.Where(x => x.QualityIncreaseMultiplier > 0).Concat(new[] { TrainedEye }).ToArray();
+            public static readonly Action[] Buffs = {
                 Observe,
                 Manipulation,
                 WasteNot,
@@ -681,18 +601,15 @@
                 Innovation,
                 GreatStrides
             };
-            public static readonly Action[] ProgressBuffs = new Action[]
-            {
+            public static readonly Action[] ProgressBuffs = {
                 Veneration,
                 //FinalAppraisal
             };
-            public static readonly Action[] QualityBuffs = new Action[]
-            {
+            public static readonly Action[] QualityBuffs = {
                 Innovation,
                 GreatStrides
             };
-            public static readonly Action[] DurabilityActions = new Action[]
-            {
+            public static readonly Action[] DurabilityActions = {
                 Manipulation,
                 MastersMend,
                 WasteNot,
@@ -701,6 +618,12 @@
 
             public static void UpgradeActionsByLevel(int level)
             {
+                if (level > 31)
+                {
+                    Action a = BasicSynth;
+                    a.ProgressIncreaseMultiplier = 1.2;
+                    BasicSynth = a;
+                }
                 if (level >= 82)
                 {
                     Action a = CarefulSynthesis;
@@ -715,7 +638,7 @@
                     Groundwork = a;
                 }
             }
-        };
+        }
         public static readonly Dictionary<int, int> LevelTable = new()
         {
             { 51, 120 },
@@ -759,7 +682,7 @@
             { 89, 558 },
             { 90, 560 }
         };
-        public static Dictionary<string, Dictionary<int, double>> LevelDifferenceFactors = new Dictionary<string, Dictionary<int, double>>
+        public static readonly Dictionary<string, Dictionary<int, double>> LevelDifferenceFactors = new Dictionary<string, Dictionary<int, double>>
         {
             {
                 "control", new()

@@ -1,13 +1,11 @@
-﻿using Action = Libraries.Action;
-
-namespace Libraries
+﻿namespace Libraries
 {
     public class State
     {
         public Simulator Simulator { get; init; }
         public int Step { get; set; }
         public int LastStep { get; set; }
-        public Action Action { get; set; } // the action leading to this state
+        public Action? Action { get; set; } // the action leading to this state
         public double Durability { get; set; }
         public double Cp { get; set; }
         public double Quality { get; set; }
@@ -37,18 +35,18 @@ namespace Libraries
             { "UntrainedFinesse", 0 }
         };
 
-        public State(Simulator simulator, Action action)
+        public State(Simulator simulator, Action? action)
         {
             Simulator = simulator;
             Action = action;
-            CountDowns = new Dictionary<Action, int>();
-            CountUps = new Dictionary<Action, int>();
-            Indefinites = new Dictionary<Action, int>();
+            CountDowns = new();
+            CountUps = new();
+            Indefinites = new();
         }
 
         public State Clone()
         {
-            return new State(Simulator, Action)
+            return new(Simulator, Action)
             {
                 Step = Step,
                 LastStep = LastStep,
@@ -107,7 +105,7 @@ namespace Libraries
 
         private void UpdateEffectCounters(Action action)
         {
-            List<Action> buffDrops = new List<Action>();
+            List<Action> buffDrops = new();
             foreach (var a in CountDowns)
             {
                 CountDowns[a.Key]--;
@@ -119,6 +117,18 @@ namespace Libraries
             foreach (var a in buffDrops)
             {
                 CountDowns.Remove(a);
+            }
+
+            if (action.Equals(Atlas.Actions.BasicTouch))
+            {
+                if (CountDowns.ContainsKey(Atlas.Actions.BasicTouch))
+                {
+                    CountDowns[Atlas.Actions.BasicTouch] = 2;
+                }
+                else
+                {
+                    CountDowns.Add(Atlas.Actions.BasicTouch, 2);
+                }
             }
 
             // conditional IQ countups

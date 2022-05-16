@@ -14,7 +14,7 @@ namespace Libraries.Solvers
         const int PROB_MUTATION = 15;
 
         Random rand = new Random();
-        Action[] genes;
+        Action?[] genes;
         int probParentX = 100 - (PROB_MUTATION / 2);
         private Solver.LoggingDelegate _logger = (string message) => Debug.WriteLine(message);
 
@@ -42,7 +42,7 @@ namespace Libraries.Solvers
         }
 
         #region Audits
-        public delegate bool Audit(List<Action> actions, List<Action> crafterActions);
+        public delegate bool Audit(List<Action?> actions, List<Action?> crafterActions);
         public static Audit[] audits = new Audit[]
         {
                 AuditInnerQuiet,
@@ -52,11 +52,11 @@ namespace Libraries.Solvers
                 AuditTrainedFinesse
         };
 
-        public static bool AuditLastAction(List<Action> actions, List<Action> crafterActions)
+        public static bool AuditLastAction(List<Action?> actions, List<Action> crafterActions)
         {
             return Atlas.Actions.ProgressActions.Contains(actions.Last());
         }
-        public static bool AuditInnerQuiet(List<Action> actions, List<Action> crafterActions)
+        public static bool AuditInnerQuiet(List<Action> actions, List<Action?> crafterActions)
         {
             if (actions.Any(x => x.Equals(Atlas.Actions.InnerQuiet) || x.Equals(Atlas.Actions.Reflect)))
             {
@@ -68,11 +68,11 @@ namespace Libraries.Solvers
             }
             return true;
         }
-        public static bool AuditRepeatBuffs(List<Action> actions, List<Action> crafterActions)
+        public static bool AuditRepeatBuffs(List<Action?> actions, List<Action> crafterActions)
         {
             return actions.Count < 2 || !(actions[0].Equals(actions[1]) && Atlas.Actions.Buffs.Contains(actions[0]));
         }
-        public static bool AuditFirstRound(List<Action> actions, List<Action> crafterActions)
+        public static bool AuditFirstRound(List<Action?> actions, List<Action> crafterActions)
         {
             return !Atlas.Actions.FirstRoundActions.Any(x => actions.LastIndexOf(x) > 0);
         }
@@ -103,7 +103,7 @@ namespace Libraries.Solvers
             return true;
         }
 
-        public static bool SolutionAudit(List<Action> actions, List<Action> crafterActions) => audits.All(audit => audit(actions, crafterActions));
+        public static bool SolutionAudit(List<Action?> actions, List<Action?> crafterActions) => audits.All(audit => audit(actions, crafterActions));
         public static List<int> GetIndices(List<Action> actions, Action action)
         {
             List<int> res = new List<int>();
@@ -115,26 +115,26 @@ namespace Libraries.Solvers
         }
         #endregion
 
-        public Action MutateGene(Random r) => genes[r.Next(genes.Length - 1)];
-        public List<Action> CreateChromosome(int length, Random r)
+        public Action? MutateGene(Random r) => genes[r.Next(genes.Length - 1)];
+        public List<Action?> CreateChromosome(int length, Random r)
         {
-            List<Action> actions = new List<Action>();
+            List<Action?> actions = new List<Action?>();
             for (int i = 0; i < length; i++)
             {
-                Action action = MutateGene(r);
+                Action? action = MutateGene(r);
                 actions.Add(action);
                 if (action.Equals(Atlas.Actions.DummyAction)) break;
             }
             return actions;
         }
-        public List<Action> Mate(List<Action> parent1, List<Action> parent2, Random r)
+        public List<Action?> Mate(List<Action?> parent1, List<Action?> parent2, Random r)
         {
-            List<Action> actions = new List<Action>();
+            List<Action?> actions = new List<Action?>();
 
             int length = r.Next(2) == 0 ? parent1.Count : parent2.Count;
             for (int i = 0; i < length; i++)
             {
-                Action action;
+                Action? action;
                 int p = r.Next(100);
 
                 if (p <= probParentX) action = parent1.Count - 1 > i ? parent2[i] : parent1[i];
@@ -148,7 +148,7 @@ namespace Libraries.Solvers
             return actions;
         }
 
-        public void BuildPopulation(ConcurrentBag<List<Action>> population, int maxLength, int maxTasks)
+        public void BuildPopulation(ConcurrentBag<List<Action?>> population, int maxLength, int maxTasks)
         {
             var genesList = genes.ToList();
             Parallel.For(0, maxTasks - 1, (i) =>
@@ -163,27 +163,27 @@ namespace Libraries.Solvers
             });
         }
 
-        public List<Action> GetSucessfulSteps(Simulator sim, List<Action> actions, State startState)
+        public List<Action?> GetSucessfulSteps(Simulator sim, List<Action?> actions, State startState)
         {
             State finishState = sim.Simulate(actions, startState);
             return actions.Take(finishState.LastStep).ToList();
         }
 
-        public List<Action> Run(Simulator sim, int maxTasks, Solver.LoggingDelegate? loggingDelegate = null)
+        public List<Action?> Run(Simulator sim, int maxTasks, Solver.LoggingDelegate? loggingDelegate = null)
         {
             int generation = 1;
 
             genes = sim.Crafter.Actions;
-            List<Action> genesList = genes.ToList();
+            List<Action?> genesList = genes.ToList();
             ListComparer comparer = new ListComparer();
 
             int maxLength = sim.MaxLength;
-            State startState = sim.Simulate(null, new State(sim, null));
+            State startState = sim.Simulate(new List<Action>(), new State(sim, null));
 
-            ConcurrentBag<List<Action>> population = new ConcurrentBag<List<Action>>();
+            ConcurrentBag<List<Action?>> population = new ConcurrentBag<List<Action?>>();
             object lockObj = new object();
             bool foundPerfect = false;
-            List<Action> perfect = new List<Action>();
+            List<Action?> perfect = new List<Action?>();
 
             Stopwatch sw = new Stopwatch();
             sw.Start();
@@ -195,10 +195,10 @@ namespace Libraries.Solvers
                 GC.Collect();
                 if (population.Count == 0) BuildPopulation(population, maxLength, maxTasks);
 
-                ConcurrentBag<KeyValuePair<double, List<Action>>> scoredPopulation = new ConcurrentBag<KeyValuePair<double, List<Action>>>();
+                ConcurrentBag<KeyValuePair<double, List<Action?>>> scoredPopulation = new ConcurrentBag<KeyValuePair<double, List<Action?>>>();
                 Parallel.For(0, maxTasks - 1, (i) =>
                 {
-                    while (!foundPerfect && population.TryTake(out List<Action> chromosome))
+                    while (!foundPerfect && population.TryTake(out List<Action?> chromosome))
                     {
                         State state = sim.Simulate(chromosome, startState);
                         Tuple<double, bool> score = ScoreState(sim, state);
@@ -210,7 +210,7 @@ namespace Libraries.Solvers
                                 perfect = chromosome;
                                 continue;
                             }
-                            scoredPopulation.Add(new KeyValuePair<double, List<Action>>(score.Item1, chromosome));
+                            scoredPopulation.Add(new KeyValuePair<double, List<Action?>>(score.Item1, chromosome));
                         }
                     }
                 });
@@ -218,8 +218,8 @@ namespace Libraries.Solvers
                 if (foundPerfect)
                     return GetSucessfulSteps(sim, perfect, startState);
 
-                population = new ConcurrentBag<List<Action>>();
-                List<KeyValuePair<double, List<Action>>> scores = scoredPopulation.ToList();
+                population = new ConcurrentBag<List<Action?>>();
+                List<KeyValuePair<double, List<Action?>>> scores = scoredPopulation.ToList();
                 scores.Sort(comparer);
                 if (generation == MAX_GENERATION)
                     return GetSucessfulSteps(sim, scores.First().Value, startState);
@@ -233,16 +233,16 @@ namespace Libraries.Solvers
                     // take top percent of population
                     int populationSize = Math.Min(generationSize, scores.Count);
                     int eliteCount = (int)Math.Ceiling(populationSize * ((double)ELITE_PERCENTAGE / 100));
-                    IEnumerable<List<Action>> elites = scores.Take(eliteCount).Select(x => x.Value);
-                    foreach (List<Action> elite in elites) population.Add(elite);
+                    IEnumerable<List<Action?>> elites = scores.Take(eliteCount).Select(x => x.Value);
+                    foreach (List<Action?> elite in elites) population.Add(elite);
 
                     // mate next percent of population
                     int mateCount = (int)Math.Ceiling(populationSize * ((double)MATE_PERCENTAGE / 100));
-                    List<List<Action>> matingPool = scores.Take(mateCount).Select(x => x.Value).ToList();
+                    List<List<Action?>> matingPool = scores.Take(mateCount).Select(x => x.Value).ToList();
                     while (true)
                     {
-                        List<Action> parent1 = matingPool[rand.Next(mateCount - 1)];
-                        List<Action> parent2 = matingPool[rand.Next(mateCount - 1)];
+                        List<Action?> parent1 = matingPool[rand.Next(mateCount - 1)];
+                        List<Action?> parent2 = matingPool[rand.Next(mateCount - 1)];
                         var chromosome = Mate(parent1, parent2, rand);
                         if (!SolutionAudit(chromosome, genesList)) continue;
                         if (population.Count >= generationSize) break;

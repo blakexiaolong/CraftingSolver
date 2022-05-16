@@ -1,9 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using Libraries;
-using Action = System.Action;
-
-namespace Libraries
+﻿namespace Libraries
 {
     public class Simulator
     {
@@ -32,58 +27,64 @@ namespace Libraries
             BaseQualityIncrease = CalculateBaseQualityIncrease();
         }
 
-        public State Simulate(List<Action>? actions, State startState, bool assumeSuccess = false, bool verbose = false, bool debug = false, bool useDurability = true)
+        public State Simulate(Action action, State startState, bool useDurability = true)
         {
             State s = startState.Clone();
+            
+            s.Step++;
+            SimulatorStep r = ApplyModifiers(s, action);
+                
+            var progressGain = Math.Floor(r.BProgressGain);
+            var qualityGain = Math.Floor(r.BQualityGain);
 
-            if (actions == null || actions.Count == 0)
+            if (Action.Equals(s.Action, Atlas.Actions.DummyAction) && !action.Equals(Atlas.Actions.DummyAction))
+            {
+                s.WastedActions++;
+                s.WastedCounter["NonDummyAfterDummy"]++;
+            }
+            if (s.Progress >= Recipe.Difficulty && !action.Equals(Atlas.Actions.DummyAction))
+            {
+                s.WastedActions++;
+                s.WastedCounter["OverProgress"]++;
+            }
+            else if(s.Durability <= 0 && !action.Equals(Atlas.Actions.DummyAction))
+            {
+                s.WastedActions++;
+                s.WastedCounter["OutOfDurability"]++;
+            }
+            else if (s.Cp < 0 && !action.Equals(Atlas.Actions.DummyAction))
+            {
+                s.WastedActions++;
+                s.WastedCounter["OutOfCP"]++;
+            }
+            else
+            {
+                s.UpdateState(action, progressGain, qualityGain, useDurability ? r.DurabilityCost : 0, r.CpCost);
+            }
+
+            s.Action = action;
+            return s;
+        }
+
+        public State Simulate(List<Action> actions, State startState, bool useDurability = true)
+        {
+            if (actions.Count == 0)
             {
                 return NewStateFromSynth();
             }
 
+            State s = startState;
             foreach (Action action in actions)
             {
-                s.Step++;
-                SimulatorStep r = ApplyModifiers(s, action);
-                
-                var progressGain = Math.Floor(r.BProgressGain);
-                var qualityGain = Math.Floor(r.BQualityGain);
-
-                if (Action.Equals(s.Action, Atlas.Actions.DummyAction) && !action.Equals(Atlas.Actions.DummyAction))
-                {
-                    s.WastedActions++;
-                    s.WastedCounter["NonDummyAfterDummy"]++;
-                }
-                if (s.Progress >= Recipe.Difficulty && !action.Equals(Atlas.Actions.DummyAction))
-                {
-                    s.WastedActions++;
-                    s.WastedCounter["OverProgress"]++;
-                }
-                else if(s.Durability <= 0 && !action.Equals(Atlas.Actions.DummyAction))
-                {
-                    s.WastedActions++;
-                    s.WastedCounter["OutOfDurability"]++;
-                }
-                else if (s.Cp < 0 && !action.Equals(Atlas.Actions.DummyAction))
-                {
-                    s.WastedActions++;
-                    s.WastedCounter["OutOfCP"]++;
-                }
-                else
-                {
-                    s.UpdateState(action, progressGain, qualityGain, useDurability ? r.DurabilityCost : 0, r.CpCost);
-                }
-
-                s.Action = action;
+                s = Simulate(action, s, useDurability);
             }
 
-            s.Action = actions[actions.Count - 1];
             return s;
         }
 
-        public State NewStateFromSynth()
+        private State NewStateFromSynth()
         {
-            return new State(this, null)
+            return new(this, null)
             {
                 Step = 0,
                 LastStep = 0,
@@ -97,18 +98,14 @@ namespace Libraries
                 CountUps = new Dictionary<Action, int> { { Atlas.Actions.InnerQuiet, 0 } }
             };
         }
-        public SimulatorStep ApplyModifiers(State state, Action action)
+
+        private SimulatorStep ApplyModifiers(State state, Action action)
         {
             int cpCost = action.CPCost;
             double progressIncreaseMultiplier = CalcProgressMultiplier(state, action);
             double qualityIncreaseMultiplier = CalcQualityMultiplier(state, action);
             double bProgressGain = BaseProgressIncrease * action.ProgressIncreaseMultiplier * progressIncreaseMultiplier;
             double bQualityGain = BaseQualityIncrease * action.QualityIncreaseMultiplier * qualityIncreaseMultiplier;
-
-            if (action.Equals(Atlas.Actions.FlawlessSynthesis))
-            {
-                bProgressGain = 40;
-            }
 
             // combo actions
             if (state.Action != default)
@@ -117,7 +114,7 @@ namespace Libraries
                 {
                     cpCost = 18;
                 }
-                else if (action.Equals(Atlas.Actions.AdvancedTouch) && state.Action.Equals(Atlas.Actions.StandardTouch))
+                else if (action.Equals(Atlas.Actions.AdvancedTouch) && state.Action.Equals(Atlas.Actions.StandardTouch) && state.CountDowns.ContainsKey(Atlas.Actions.BasicTouch))
                 {
                     cpCost = 18;
                 }
@@ -196,7 +193,7 @@ namespace Libraries
                 CpCost = cpCost
             };
         }
-        private double CalcProgressMultiplier(State state, Action action)
+        private static double CalcProgressMultiplier(State state, Action action)
         {
             double progressIncreaseMultiplier = 1;
             if (action.ProgressIncreaseMultiplier > 0 && state.CountDowns.ContainsKey(Atlas.Actions.MuscleMemory))
@@ -214,7 +211,7 @@ namespace Libraries
             }
             return progressIncreaseMultiplier;
         }
-        private double CalcQualityMultiplier(State state, Action action)
+        private static double CalcQualityMultiplier(State state, Action action)
         {
             double qualityIncreaseMultiplier = 1;
             if (state.CountDowns.ContainsKey(Atlas.Actions.GreatStrides) && qualityIncreaseMultiplier > 0)
@@ -244,18 +241,19 @@ namespace Libraries
             return qualityIncreaseMultiplier;
         }
 
-        public double CalculateBaseProgressIncrease()
+        private double CalculateBaseProgressIncrease()
         {
             double b = (Crafter.Craftsmanship * 10 / Recipe.ProgressDivider + 2);
             return LevelDifference <= 0 ? b * Recipe.ProgressModifier : b;
         }
-        public double CalculateBaseQualityIncrease()
+
+        private double CalculateBaseQualityIncrease()
         {
             double b = (Crafter.Control * 10 / Recipe.QualityDivider + 35);
             return LevelDifference <= 0 ? b * Recipe.QualityModifier : b;
         }
 
-        public int GetEffectiveCrafterLevel()
+        private int GetEffectiveCrafterLevel()
         {
             if (!Atlas.LevelTable.TryGetValue(Crafter.Level, out int effectiveCrafterLevel))
             {
@@ -273,27 +271,30 @@ namespace Libraries
 
             return factors[levelDifference];
         }
-        
-        public double QualityFromHqPercent(double hqPercent)
+
+        private double QualityFromHqPercent(double hqPercent)
         {
             return -5.6604E-6 * Math.Pow(hqPercent, 4) + 0.0015369705 * Math.Pow(hqPercent, 3) - 0.1426469573 * Math.Pow(hqPercent, 2) + 5.6122722959 * hqPercent - 5.5950384565;
         }
         public double HqPercentFromQuality(double qualityPercent)
         {
             var hqPercent = 1;
-            if (qualityPercent == 0)
+            switch (qualityPercent)
             {
-                hqPercent = 1;
-            }
-            else if (qualityPercent >= 100)
-            {
-                hqPercent = 100;
-            }
-            else
-            {
-                while (QualityFromHqPercent(hqPercent) < qualityPercent && hqPercent < 100)
+                case 0:
+                    hqPercent = 1;
+                    break;
+                case >= 100:
+                    hqPercent = 100;
+                    break;
+                default:
                 {
-                    hqPercent += 1;
+                    while (QualityFromHqPercent(hqPercent) < qualityPercent && hqPercent < 100)
+                    {
+                        hqPercent += 1;
+                    }
+
+                    break;
                 }
             }
             return hqPercent;

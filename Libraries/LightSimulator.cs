@@ -57,10 +57,6 @@
                     }
 
                     baseProgressGain = simulator.BaseProgressIncrease * action.ProgressIncreaseMultiplier * progressIncreaseMultiplier;
-                    if (action.Equals(Atlas.Actions.FlawlessSynthesis))
-                    {
-                        baseProgressGain = 40;
-                    }
                 }
 
                 double qualityIncreaseMultiplier = 1, baseQualityGain = 0;

@@ -37,7 +37,7 @@
         public delegate void LoggingDelegate(string message);
         public interface ISolver
         {
-            List<Action> Run(Simulator sim, int maxTasks, LoggingDelegate? loggingDelegate = null);
+            List<Action?> Run(Simulator sim, int maxTasks, LoggingDelegate? loggingDelegate = null);
         }
     }
 }

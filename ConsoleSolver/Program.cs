@@ -118,7 +118,7 @@ Simulator sim = new(newBuffed, bluefeatherBarding)
 const int maxTasks = 20;
 sim.Initialize();
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
-var solution = new JABOASolver().Run(sim, maxTasks, loggingDelegate: Console.WriteLine);
+var solution = new JaboaSolver().Run(sim, maxTasks, loggingDelegate: Console.WriteLine);
 Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));
 Console.WriteLine("Press Enter to exit");
 Console.ReadLine();

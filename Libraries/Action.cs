@@ -27,7 +27,7 @@
         public bool OnExcellent { get; init; }
         public bool OnPoor { get; set; }
 
-        public static bool Equals(Action x, Action y)
+        public static bool Equals(Action? x, Action? y)
         {
             if (x == default && y == default) return true;
             else if (x == default || y == default) return false;

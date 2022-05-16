@@ -1,6 +1,4 @@
-﻿using System.Collections;
-using System.Diagnostics;
-using static Libraries.Solver;
+﻿using static Libraries.Solver;
 
 namespace Libraries.Solvers
 {
@@ -11,7 +9,7 @@ namespace Libraries.Solvers
         private const double MinDurabilityCost = 96 / 40D;
 
         private const int ProgressSetMaxLength = 7;
-        private const int QualitySetMaxLength = 7;
+        private const int QualitySetMaxLength = 8;
 
         private const int ActionBinarySize = 5;
 
@@ -33,14 +31,14 @@ namespace Libraries.Solvers
             Action[] durabilityActions = Atlas.Actions.DurabilityActions.ToArray();
 
             _logger($"\n[{DateTime.Now}] Generating Progress Combinations");
-            List<KeyValuePair<double, bool[]>> progressLists = GenerateDFSActionTree(sim, startState, progressActions, ProgressFailure, ProgressSuccess, ProgressScore, ProgressSetMaxLength, cp, ignoreProgress: false);
+            List<KeyValuePair<int, bool[]>> progressLists = GenerateDfsActionTree(sim, startState, progressActions, ProgressFailure, ProgressSuccess, ProgressScore, ProgressSetMaxLength, cp, ignoreProgress: false);
             int cpCost = (int)ListToCpCost(BinaryToActions(progressLists.First().Value));
             cp = sim.Crafter.CP + (int)(sim.Recipe.Durability * MaxDurabilityCost) - cpCost;
             _logger($"[{DateTime.Now}] Good Lists Found: {progressLists.Count}\n\t{string.Join(",", BinaryToActions(progressLists.First().Value).Select(x => x.ShortName))}");
             _logger($"[{DateTime.Now}] CP Cost: {cpCost}; CP Remaining: {cp}");
 
             _logger($"\n[{DateTime.Now}] Generating Quality Combinations");
-            List<KeyValuePair<double, bool[]>> qualityLists = GenerateDFSActionTree(sim, startState, qualityActions, QualityFailure, QualitySuccess, QualityScore, QualitySetMaxLength, cp, ignoreProgress: true);
+            List<KeyValuePair<int, bool[]>> qualityLists = GenerateDfsActionTree(sim, startState, qualityActions, QualityFailure, QualitySuccess, QualityScore, QualitySetMaxLength, cp, ignoreProgress: true);
             cpCost = (int)ListToCpCost(BinaryToActions(qualityLists.First().Value));
             cp -= cpCost;
             _logger($"[{DateTime.Now}] Good Lists Found: {qualityLists.Count}\n\t{string.Join(",", BinaryToActions(qualityLists.First().Value).Select(x => x.ShortName))}");
@@ -118,43 +116,46 @@ namespace Libraries.Solvers
             return null;
         }
 
-        public delegate bool SuccessCondition(State state);
+        #region Delegates
+        private delegate bool SuccessCondition(State state);
 
-        public static bool ProgressSuccess(State state)
+        private static bool ProgressSuccess(State state)
         {
             return state.Success;
         }
-        public static bool QualitySuccess(State state)
+        private static bool QualitySuccess(State state)
         {
             return true;
         }
 
-        public delegate bool FailureCondition(State state);
-        public static bool ProgressFailure(State state)
+        private delegate bool FailureCondition(State state);
+        private static bool ProgressFailure(State state)
         {
             return false;
         }
-        public static bool QualityFailure(State state)
+        private static bool QualityFailure(State state)
         {
             return false;
         }
 
-        public delegate double NodeScore(List<Action?> path, double score);
-        public double ProgressScore(List<Action?> path, double score)
+        private delegate double NodeScore(List<Action> path, double score);
+
+        private static double ProgressScore(List<Action> path, double score)
         {
             return ListToCpCost(path);
         }
-        public double QualityScore(List<Action> path, double score)
+        private static double QualityScore(List<Action> path, double score)
         {
             return -1 * score;
         }
+        #endregion
 
-        private List<KeyValuePair<double, bool[]>> GenerateDFSActionTree(Simulator sim, State startState, Action?[] actions, FailureCondition failureCondition, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
+        private List<KeyValuePair<int, bool[]>> GenerateDfsActionTree(Simulator sim, State startState, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
         {
             long nodesGenerated = 0, solutionCount = 0;
-            ActionNode head = new ActionNode(null, startState, null);
-            List<KeyValuePair<double, bool[]>> lists = new();
-            SubDFSActionTree(sim, head, actions, failureCondition, successCondition, nodeScore, maxLength, maxLength, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
+            ActionNode head = new ActionNode(null, startState, null!);
+            List<KeyValuePair<int, bool[]>> lists = new();
+            SubDfsActionTree(sim, head, actions, failureCondition, successCondition, nodeScore, maxLength, maxLength, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
             _logger($"[{DateTime.Now}] Nodes Generated: {nodesGenerated}");
             _logger($"[{DateTime.Now}] Lists Found: {lists.Count}");
 
@@ -164,12 +165,12 @@ namespace Libraries.Solvers
             var unused = sim.Simulate(BinaryToActions(lists.First().Value), startState, useDurability: false);
             return lists;
         }
-        private void SubDFSActionTree(Simulator sim, ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress, ref List<KeyValuePair<double, bool[]>> lists, ref long nodesGenerated, ref long solutionCount)
+        private void SubDfsActionTree(Simulator sim, ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress, ref List<KeyValuePair<int, bool[]>> lists, ref long nodesGenerated, ref long solutionCount)
         {
             if (remainingDepth <= 0) return;
             foreach (Action action in actions)
             {
-                State state = sim.Simulate(action, node.State, useDurability: false);
+                State state = sim.Simulate(action, node.State!, useDurability: false);
                 if (state.WastedActions > 0 || failureCondition(state)) continue;
 
                 double score = ScoreState(sim, state, ignoreProgress: ignoreProgress);
@@ -181,14 +182,15 @@ namespace Libraries.Solvers
 
                 nodesGenerated++;
                 ActionNode newNode = node.Add(action, state);
-                SubDFSActionTree(sim, newNode, actions, failureCondition, successCondition, nodeScore, maxLength, remainingDepth - 1, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
+                SubDfsActionTree(sim, newNode, actions, failureCondition, successCondition, nodeScore, maxLength, remainingDepth - 1, cpLimit, ignoreProgress, ref lists, ref nodesGenerated, ref solutionCount);
 
                 if (successCondition(state))
                 {
                     solutionCount++;
-                    lists.Add(new(nodeScore(path, score), ActionsToBinary(path)));
+                    lists.Add(new((int)nodeScore(path, score), ActionsToBinary(path)));
                 }
-                if (newNode.Parent != null && newNode.Parent.Children != null) newNode.Parent.Children.Remove(newNode);
+
+                newNode.Parent?.Children.Remove(newNode);
 
                 if (remainingDepth == maxLength)
                 {
@@ -196,11 +198,7 @@ namespace Libraries.Solvers
                 }
             }
         }
-
-        private static double ListToCpCost(bool[] list, bool considerDurability = true)
-        {
-            return ListToCpCost(BinaryToActions(list));
-        }
+        
         public static double ListToCpCost(List<Action> list, bool considerDurability = true)
         {
             double cpTotal = list.Sum(x => x.CPCost);
@@ -225,9 +223,9 @@ namespace Libraries.Solvers
             return cpTotal + observeCost + durabilityTotal - comboSavings;
         }
 
-        private static List<List<Action?>> Iterate(List<Action?> prevSet, Dictionary<Action?, int> actionChoices, bool qualityOnly)
+        private static List<List<Action>> Iterate(List<Action> prevSet, Dictionary<Action, int> actionChoices, bool qualityOnly)
         {
-            List<List<Action?>> newSets = new List<List<Action?>>();
+            List<List<Action>> newSets = new List<List<Action>>();
             Dictionary<Action, int> counts = new Dictionary<Action, int>();
             foreach (var group in prevSet.GroupBy(x => x.ID))
             {
@@ -237,26 +235,15 @@ namespace Libraries.Solvers
             var remainingActions = actionChoices.Where(x => !counts.ContainsKey(x.Key) || x.Value > counts[x.Key]).Select(x => x.Key);
             if (!qualityOnly && !remainingActions.Any(x => x.ProgressIncreaseMultiplier > 0)) return newSets;
 
-            foreach (Action? action in remainingActions)
+            foreach (Action action in remainingActions)
             {
                 if (action == prevSet[^1] && Atlas.Actions.Buffs.Contains(action)) continue;
 
-                List<Action?> newSet = prevSet.ToList();
+                List<Action> newSet = prevSet.ToList();
                 newSet.Add(action);
                 newSets.Add(newSet);
             }
             return newSets;
-        }
-        private static bool Iterate(int[] arr, int ix)
-        {
-            if (ix == -1)
-                return false;
-            arr[ix] = (arr[ix] + 1) % 2;
-            if (arr[ix] == 0)
-            {
-                return Iterate(arr, ix - 1);
-            }
-            return true;
         }
 
         private static List<Action>? InsertDurability(Simulator sim, State startState, List<List<Action?>> actions, Action?[] durabilityActions, double cpMax)
@@ -276,12 +263,69 @@ namespace Libraries.Solvers
             var solution = ZipListSets(sim, startState, actions, durabilitySolutions, true);
             return solution.Any() ? solution[^1].Value : null;
         }
-        public static double MaxDurabilityGain(List<Action?> durabiltyActions, List<Action> actions)
+        
+        private static List<KeyValuePair<double, List<Action>>> ZipListSets(Simulator sim, State startState, List<List<Action>> left, List<List<Action>> right, bool useDurability)
+        {
+            SortedList<double, List<Action>> zippedLists = new();
+            foreach (List<Action> leftList in left)
+            {
+                foreach (List<Action> rightList in right)
+                {
+                    if (ListToCpCost(leftList, false) + ListToCpCost(rightList, false) > sim.Crafter.CP) continue;
+                    if (leftList.Sum(x => x.DurabilityCost) - leftList[^1].DurabilityCost > sim.Recipe.Durability + MaxDurabilityGain(rightList, leftList.OrderBy(x => x.DurabilityCost).ToList())) continue;
+
+                    var merger = new int[leftList.Count + rightList.Count];
+                    for (var k = 0; k < merger.Length; k++) merger[k] = 0;
+
+                    while (Iterate(merger, merger.Length - 1))
+                    {
+                        if (merger[^1] != 0) continue;
+            
+                        int p = 0, q = 0;
+                        State s = startState;
+                        for (var i = 0; i < merger.Length; i++)
+                        {
+                            if (merger[i] == 0)
+                            {
+                                if (p >= leftList.Count) break;
+                                s = sim.Simulate(leftList[p++], s, useDurability);
+                            }
+                            else
+                            {
+                                if (q >= rightList.Count) break;
+                                s = sim.Simulate(rightList[q++], s, useDurability);
+                            }
+
+                            var score = ScoreState(sim, s);
+                            if (s.WastedActions > 0 || score <= 0 || zippedLists.ContainsKey(score)) break;
+                            if (i < merger.Length - 1 || s.Progress < sim.Recipe.Difficulty) continue;
+                            
+                            p = 0; q = 0;
+                            var actions = new List<Action>(merger.Length);
+                            foreach (var t in merger)
+                            {
+                                actions.Add(t == 0 ? leftList[p++] : rightList[q++]);
+                            }
+                            zippedLists.Add(score, actions);
+                        }
+                    }
+                }
+            }
+            return zippedLists.ToList();
+        }
+        private static bool Iterate(int[] arr, int ix)
+        {
+            if (ix == -1)
+                return false;
+            arr[ix] = (arr[ix] + 1) % 2;
+            return arr[ix] != 0 || Iterate(arr, ix - 1);
+        }
+        private static double MaxDurabilityGain(List<Action> durabilityActions, List<Action> actions)
         {
             double maxGain = 0;
             int wnIndex = 0;
-            int manipRounds = durabiltyActions.Count + actions.Count - 1;
-            foreach (var action in durabiltyActions)
+            int manipRounds = durabilityActions.Count + actions.Count - 1;
+            foreach (var action in durabilityActions)
             {
                 switch (action.ShortName)
                 {
@@ -311,71 +355,17 @@ namespace Libraries.Solvers
                     case "manipulation":
                         for (int i = 0; i < 8; i++)
                         {
-                            if (manipRounds > 0)
-                            {
-                                manipRounds--;
-                                maxGain += 5;
-                            }
+                            if (manipRounds <= 0) continue;
+
+                            manipRounds--;
+                            maxGain += 5;
                         }
                         break;
                 }
             }
             return maxGain;
         }
-        public static List<KeyValuePair<double, List<Action>>> ZipListSets(Simulator sim, State startState, List<List<Action>> left, List<List<Action>> right, bool useDurability)
-        {
-            SortedList<double, List<Action>> zippedLists = new();
-            foreach (var leftList in left)
-            {
-                foreach (var rightList in right)
-                {
-                    if (ListToCpCost(leftList, false) + ListToCpCost(rightList, false) > sim.Crafter.CP) continue;
-                    if (leftList.Sum(x => x.DurabilityCost) - leftList[^1].DurabilityCost > sim.Recipe.Durability + MaxDurabilityGain(rightList, leftList.OrderBy(x => x.DurabilityCost).ToList())) continue;
-
-                    var merger = new int[leftList.Count + rightList.Count];
-                    for (var k = 0; k < merger.Length; k++) merger[k] = 0;
-
-                    while (Iterate(merger, merger.Length - 1))
-                    {
-                        if (merger[^1] != 0) continue;
-            
-                        int p = 0, q = 0;
-                        double score;
-                        State s = startState;
-                        for (var i = 0; i < merger.Length; i++)
-                        {
-                            if (merger[i] == 0)
-                            {
-                                if (p >= leftList.Count) break;
-                                s = sim.Simulate(leftList[p++], s, useDurability);
-                            }
-                            else
-                            {
-                                if (q >= rightList.Count) break;
-                                s = sim.Simulate(rightList[q++], s, useDurability);
-                            }
-
-                            score = ScoreState(sim, s, false);
-                            if (s.WastedActions > 0 || score <= 0 || zippedLists.ContainsKey(score)) break;
-                            
-                            if (i == merger.Length - 1 && s.Progress >= sim.Recipe.Difficulty)
-                            {
-                                p = 0; q = 0;
-                                var actions = new List<Action>(merger.Length);
-                                foreach (var t in merger)
-                                {
-                                    actions.Add(t == 0 ? leftList[p++] : rightList[q++]);
-                                }
-                                zippedLists.Add(score, actions);
-                            }
-                        }
-                    }
-                }
-            }
-            return zippedLists.ToList();
-        }
-
-        public static List<Action>? ZipLists(List<Action> left, List<Action> right, int[] merger)
+        private static List<Action>? ZipLists(List<Action> left, List<Action> right, int[] merger)
         {
             int lCount = 0, rCount = 0;
             for (int i = 0; i < merger.Length; i++)
@@ -402,7 +392,8 @@ namespace Libraries.Solvers
             return actions;
         }
 
-        public static List<Action> BinaryToActions(bool[] bits)
+        #region Binary Converters
+        private static List<Action> BinaryToActions(bool[] bits)
         {
             List<Action> actions = new(bits.Length / ActionBinarySize);
             for (int bigIndex = 0; bigIndex < bits.Length; bigIndex += ActionBinarySize)
@@ -628,7 +619,7 @@ namespace Libraries.Solvers
             }
             return actions;
         }
-        public static bool[] ActionsToBinary(List<Action> actions)
+        private static bool[] ActionsToBinary(List<Action> actions)
         {
             bool[] bitArray = new bool[actions.Count * ActionBinarySize];
             int bigIndex = 0;
@@ -866,5 +857,6 @@ namespace Libraries.Solvers
             }
             return bitArray;
         }
+        #endregion
     }
 }

@@ -11,8 +11,8 @@ namespace Libraries.Solvers
         private const int ProgressSetMaxLength = 7;
         private const int QualitySetMaxLength = 8;
 
-        private readonly LightSimulator _sim;
-        private readonly LightState _startState;
+        private readonly Simulator _sim;
+        private readonly State _startState;
         private readonly LoggingDelegate _logger;
 
         private readonly Action[] progressActions, qualityActions, durabilityActions;
@@ -21,11 +21,11 @@ namespace Libraries.Solvers
         private List<List<Action>> _progressLists = new();
         private KeyValuePair<double, List<Action>>? _bestSolution = null;
 
-        public JaboaSolver(LightSimulator sim, LoggingDelegate loggingDelegate)
+        public JaboaSolver(Simulator sim, LoggingDelegate loggingDelegate)
         {
             _sim = sim;
             _logger = loggingDelegate;
-            _startState = _sim.Simulate(new List<Action>())!.Value;
+            _startState = _sim.Simulate(new List<Action>(), new(_sim, null));
 
             progressActions = new Action[Atlas.Actions.ProgressActions.Length + Atlas.Actions.ProgressBuffs.Length];
             Atlas.Actions.ProgressActions.CopyTo(progressActions, 0);
@@ -38,20 +38,20 @@ namespace Libraries.Solvers
             durabilityActions = Atlas.Actions.DurabilityActions.ToArray();
         }
 
-        public double ScoreState(LightState? state, bool ignoreProgress = false)
+        public double ScoreState(State? state, bool ignoreProgress = false)
         {
             if (state == null) return -1;
 
-            if (!state.Value.Success(_sim))
+            if (!state.Success)
             {
-                var violations = state.Value.CheckViolations(_sim);
+                var violations = state.CheckViolations();
                 if (!violations.DurabilityOk || !violations.CpOk) return -1;
             }
-            double progress = ignoreProgress ? 0 : (state.Value.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Value.Progress) / _sim.Recipe.Difficulty;
+            double progress = ignoreProgress ? 0 : (state.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Progress) / _sim.Recipe.Difficulty;
             double maxQuality = _sim.Recipe.MaxQuality * 1.1;
-            double quality = (state.Value.Quality > maxQuality ? maxQuality : state.Value.Quality) / _sim.Recipe.MaxQuality;
-            double cp = state.Value.CP / _sim.Crafter.CP;
-            double dur = state.Value.Durability / _sim.Recipe.Durability;
+            double quality = (state.Quality > maxQuality ? maxQuality : state.Quality) / _sim.Recipe.MaxQuality;
+            double cp = state.Cp / _sim.Crafter.CP;
+            double dur = state.Durability / _sim.Recipe.Durability;
             return (progress + quality) * 100 + (cp + dur) * 10;
         }
 
@@ -74,12 +74,12 @@ namespace Libraries.Solvers
         }
 
         #region Delegates
-        private delegate bool SuccessCondition(LightState state, double score);
-        private bool ProgressSuccess(LightState state, double score)
+        private delegate bool SuccessCondition(State state, double score);
+        private bool ProgressSuccess(State state, double score)
         {
-            return state.Success(_sim);
+            return state.Success;
         }
-        private bool QualitySuccess(LightState state, double score)
+        private bool QualitySuccess(State state, double score)
         {
             return _bestSolution == null || score - _bestSolution.Value.Key > 1;
         }
@@ -95,12 +95,12 @@ namespace Libraries.Solvers
             CombineActionLists(actions, _progressLists, progressLeft: false, useDurability: false, MergeProgressSuccessCallback);
         }
 
-        private delegate bool FailureCondition(LightState state);
-        private bool ProgressFailure(LightState state)
+        private delegate bool FailureCondition(State state);
+        private bool ProgressFailure(State state)
         {
             return false;
         }
-        private bool QualityFailure(LightState state)
+        private bool QualityFailure(State state)
         {
             return false;
         }
@@ -122,7 +122,7 @@ namespace Libraries.Solvers
             var solution = InsertDurability(actions, cpMax);
             if (solution == null) return null;
 
-            LightState? s = _sim.Simulate(solution.Value.Value, _startState);
+            State? s = _sim.Simulate(solution.Value.Value, _startState);
             if (s == null) return null;
 
             KeyValuePair<double, List<Action>> foundSolution = new(ScoreState(s), solution.Value.Value);
@@ -150,8 +150,8 @@ namespace Libraries.Solvers
             if (remainingDepth <= 0) return;
             foreach (Action action in actions)
             {
-                LightState? state = _sim.Simulate(action, node.State!.Value, false);
-                if (state == null || failureCondition(state.Value)) continue;
+                State? state = _sim.Simulate(action, node.State, false);
+                if (state == null || failureCondition(state)) continue;
 
                 double score = ScoreState(state, ignoreProgress: ignoreProgress);
                 if (score <= 0) continue;
@@ -161,10 +161,10 @@ namespace Libraries.Solvers
                 if (ListToCpCost(path) > cpLimit) continue;
 
                 nodesGenerated++;
-                ActionNode newNode = node.Add(action, state.Value);
+                ActionNode newNode = node.Add(action, state);
                 SubDfsActionTree(newNode, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth - 1, cpLimit, ignoreProgress, ref nodesGenerated, ref solutionCount);
 
-                if (successCondition(state.Value, score))
+                if (successCondition(state, score))
                 {
                     solutionCount++;
                     successCallback((int)nodeScore(path, score), path);
@@ -202,8 +202,8 @@ namespace Libraries.Solvers
                     List<Action>? actions = ZipLists(leftList, rightList, merger);
                     if (actions == null) continue;
 
-                    LightState? s = _sim.Simulate(actions, _startState, useDurability);
-                    if (s == null || s.Value.Progress < _sim.Recipe.Difficulty) continue;
+                    State? s = _sim.Simulate(actions, _startState, useDurability);
+                    if (s.Progress < _sim.Recipe.Difficulty) continue;
 
                     double score = ScoreState(s);
                     if (_bestSolution != null && score - _bestSolution.Value.Key < 1) continue;

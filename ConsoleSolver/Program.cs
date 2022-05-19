@@ -110,13 +110,23 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, bluefeatherBarding)
+Simulator sim = new(newBuffed, bluefeatherBarding)
 {
     MaxLength = 30,
 };
+sim.Initialize();
 
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
+
+LightSimulator lsim = new(newBuffed, bluefeatherBarding);
+lsim.Simulate(
+    new List<Action>
+    {
+        Atlas.Actions.MuscleMemory, Atlas.Actions.Veneration, Atlas.Actions.Groundwork, Atlas.Actions.CarefulSynthesis,
+        Atlas.Actions.BasicSynth
+    }, false);
+
 var solver = new JaboaSolver(sim, Console.WriteLine);
 var solution = solver.Run(maxTasks);
 Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));

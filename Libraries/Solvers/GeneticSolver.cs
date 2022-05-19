@@ -13,10 +13,19 @@ namespace Libraries.Solvers
         const int GENERATION_SIZE = 500000; // 500 thousand
         const int PROB_MUTATION = 15;
 
+        private readonly Simulator _sim;
+        private readonly State _startState;
+
         Random rand = new Random();
         Action?[] genes;
         int probParentX = 100 - (PROB_MUTATION / 2);
         private Solver.LoggingDelegate _logger = (string message) => Debug.WriteLine(message);
+
+        public GeneticSolver(Simulator sim)
+        {
+            _sim = sim;
+            _startState = _sim.Simulate(new List<Action>(), null!);
+        }
 
         public class ListComparer : IComparer<KeyValuePair<double, List<Action>>>
         {
@@ -169,16 +178,15 @@ namespace Libraries.Solvers
             return actions.Take(finishState.LastStep).ToList();
         }
 
-        public List<Action?> Run(Simulator sim, int maxTasks, Solver.LoggingDelegate? loggingDelegate = null)
+        public List<Action?> Run(int maxTasks)
         {
             int generation = 1;
 
-            genes = sim.Crafter.Actions;
+            genes = _sim.Crafter.Actions;
             List<Action?> genesList = genes.ToList();
             ListComparer comparer = new ListComparer();
 
-            int maxLength = sim.MaxLength;
-            State startState = sim.Simulate(new List<Action>(), new State(sim, null));
+            int maxLength = _sim.MaxLength;
 
             ConcurrentBag<List<Action?>> population = new ConcurrentBag<List<Action?>>();
             object lockObj = new object();
@@ -200,8 +208,8 @@ namespace Libraries.Solvers
                 {
                     while (!foundPerfect && population.TryTake(out List<Action?> chromosome))
                     {
-                        State state = sim.Simulate(chromosome, startState);
-                        Tuple<double, bool> score = ScoreState(sim, state);
+                        State state = _sim.Simulate(chromosome, _startState);
+                        Tuple<double, bool> score = ScoreState(_sim, state);
                         if (score.Item1 > 0)
                         {
                             if (state.CheckViolations().ProgressOk && score.Item2)
@@ -216,13 +224,13 @@ namespace Libraries.Solvers
                 });
 
                 if (foundPerfect)
-                    return GetSucessfulSteps(sim, perfect, startState);
+                    return GetSucessfulSteps(_sim, perfect, _startState);
 
                 population = new ConcurrentBag<List<Action?>>();
                 List<KeyValuePair<double, List<Action?>>> scores = scoredPopulation.ToList();
                 scores.Sort(comparer);
                 if (generation == MAX_GENERATION)
-                    return GetSucessfulSteps(sim, scores.First().Value, startState);
+                    return GetSucessfulSteps(_sim, scores.First().Value, _startState);
                 scores.RemoveAll(x => x.Key == -1);
 
                 if (scores.Any())

@@ -261,16 +261,6 @@
             }
             return effectiveCrafterLevel;
         }
-        public double GetLevelDifferenceFactor(string kind, int levelDifference)
-        {
-            Dictionary<int, double> factors = Atlas.LevelDifferenceFactors[kind];
-            if (factors == default)
-            {
-                throw new Exception("Unrecognized Level Difference Factor Type");
-            }
-
-            return factors[levelDifference];
-        }
 
         private double QualityFromHqPercent(double hqPercent)
         {

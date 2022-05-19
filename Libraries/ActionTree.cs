@@ -3,11 +3,11 @@
     public class ActionNode
     {
         public Action? Action { get; set; }
-        public State? State { get; set; }
+        public LightState? State { get; set; }
         public List<ActionNode> Children { get; set; }
         public ActionNode? Parent { get; set; }
 
-        public ActionNode(Action? action, State state, ActionNode parent)
+        public ActionNode(Action? action, LightState state, ActionNode parent)
         {
             Action = action;
             Children = new();
@@ -15,7 +15,7 @@
             State = state;
         }
 
-        public ActionNode Add(Action action, State state)
+        public ActionNode Add(Action action, LightState state)
         {
             ActionNode node = new(action, state, this);
             Children.Add(node);

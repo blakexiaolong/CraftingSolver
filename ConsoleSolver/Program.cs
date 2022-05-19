@@ -110,15 +110,15 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-Simulator sim = new(newBuffed, bluefeatherBarding)
+LightSimulator sim = new(newBuffed, bluefeatherBarding)
 {
     MaxLength = 30,
 };
 
 const int maxTasks = 20;
-sim.Initialize();
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
-var solution = new JaboaSolver().Run(sim, maxTasks, loggingDelegate: Console.WriteLine);
+var solver = new JaboaSolver(sim, Console.WriteLine);
+var solution = solver.Run(maxTasks);
 Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));
 Console.WriteLine("Press Enter to exit");
 Console.ReadLine();

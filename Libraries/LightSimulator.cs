@@ -95,9 +95,6 @@ namespace Libraries
 
         private bool Simulate(Action action, ref double progress, ref double quality, ref double cp, ref double durability, ref int innerQuiet, ref int step, Dictionary<Action, LightEffect> countdowns, bool useDurability)
         {
-            int cpCost = action.CPCost;
-            double durabilityCost = useDurability ? action.DurabilityCost : 0;
-
             #region Wasted Action Checks
             if (progress >= Recipe.Difficulty) return false; // throw new WastedActionException("OverProgress");
             if (durability <= 0) return false; // throw new WastedActionException("OutOfDurability");
@@ -114,7 +111,12 @@ namespace Libraries
             if ((action.Equals(Atlas.Actions.FocusedSynthesis) || action.Equals(Atlas.Actions.FocusedTouch)) && !countdowns.ContainsKey(Atlas.Actions.Observe)) return false; // throw new WastedActionException("Unfocused");
             if ((action.Equals(Atlas.Actions.PrudentTouch) || action.Equals(Atlas.Actions.PrudentSynthesis)) && (countdowns.ContainsKey(Atlas.Actions.WasteNot) || countdowns.ContainsKey(Atlas.Actions.WasteNot2))) return false; //throw new WastedActionException("PrudentUnderWasteNot");
             #endregion
-            
+
+            int cpCost = action.CPCost;
+            double durabilityCost = useDurability ? action.DurabilityCost : 0;
+            progress += Math.Floor(BaseProgressIncrease * action.ProgressIncreaseMultiplier * CalcProgressMultiplier(action, countdowns, durability));
+            quality += Math.Floor(action.Equals(Atlas.Actions.TrainedEye) ? Recipe.MaxQuality : BaseQualityIncrease * action.QualityIncreaseMultiplier * CalcQualityMultiplier(action, countdowns, innerQuiet));
+
             #region Combos
             if (action.Equals(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.BasicTouch].RemainingRounds == 1)
             {
@@ -199,9 +201,7 @@ namespace Libraries
             #endregion
 
             step      += 1;
-            progress  += Math.Round(BaseProgressIncrease * action.ProgressIncreaseMultiplier * CalcProgressMultiplier(action, countdowns, durability));
-            quality   += Math.Round(action.Equals(Atlas.Actions.TrainedEye) ? Recipe.MaxQuality : BaseQualityIncrease * action.QualityIncreaseMultiplier * CalcQualityMultiplier(action, countdowns, innerQuiet));
-            innerQuiet = Math.Max(innerQuiet, 10);
+            innerQuiet = Math.Min(innerQuiet, 10);
             durability = Math.Min(durability - durabilityCost, Recipe.Durability);
             cp         = Math.Min(cp - cpCost, Crafter.CP);
 
@@ -266,12 +266,12 @@ namespace Libraries
         private double CalculateBaseProgressIncrease()
         {
             double b = (Crafter.Craftsmanship * 10 / Recipe.ProgressDivider + 2);
-            return LevelDifference <= 0 ? b * Recipe.ProgressModifier : b;
+            return Math.Floor(LevelDifference <= 0 ? b * Recipe.ProgressModifier : b);
         }
         private double CalculateBaseQualityIncrease()
         {
             double b = (Crafter.Control * 10 / Recipe.QualityDivider + 35);
-            return LevelDifference <= 0 ? b * Recipe.QualityModifier : b;
+            return Math.Floor(LevelDifference <= 0 ? b * Recipe.QualityModifier : b);
         }
 
         private int GetEffectiveCrafterLevel()

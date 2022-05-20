@@ -178,8 +178,7 @@
                 }
             }
 
-            if ((action.Equals(Atlas.Actions.FocusedSynthesis) || action.Equals(Atlas.Actions.FocusedTouch)) &&
-                (state.Action == null || !state.Action.Equals(Atlas.Actions.Observe)))
+            if ((action.Equals(Atlas.Actions.FocusedSynthesis) || action.Equals(Atlas.Actions.FocusedTouch)) && (state.Action == null || !state.Action.Equals(Atlas.Actions.Observe)))
             {
                 state.WastedActions++;
                 state.WastedCounter["Unfocused"]++;

@@ -7,9 +7,10 @@ namespace Libraries.Solvers
     {
         private const double MaxDurabilityCost = 88 / 30D;
         private const double MinDurabilityCost = 96 / 40D;
+        private const int QualityListMaxLength = 100000000; // 100 million
 
         private const int ProgressSetMaxLength = 7;
-        private const int QualitySetMaxLength = 8;
+        private const int QualitySetMaxLength = 10;
 
         private readonly Simulator _sim;
         private readonly State _startState;
@@ -17,7 +18,7 @@ namespace Libraries.Solvers
 
         private readonly Action[] progressActions, qualityActions, durabilityActions;
 
-        private List<KeyValuePair<double, List<Action>>> _scoredProgressLists = new();
+        private List<KeyValuePair<double, List<Action>>> _scoredProgressLists = new(), _scoredQualityLists = new();
         private List<List<Action>> _progressLists = new();
         private KeyValuePair<double, List<Action>>? _bestSolution = null;
 
@@ -38,23 +39,6 @@ namespace Libraries.Solvers
             durabilityActions = Atlas.Actions.DurabilityActions.ToArray();
         }
 
-        public double ScoreState(State? state, bool ignoreProgress = false)
-        {
-            if (state == null) return -1;
-
-            if (!state.Success)
-            {
-                var violations = state.CheckViolations();
-                if (!violations.DurabilityOk || !violations.CpOk) return -1;
-            }
-            double progress = ignoreProgress ? 0 : (state.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Progress) / _sim.Recipe.Difficulty;
-            double maxQuality = _sim.Recipe.MaxQuality * 1.1;
-            double quality = (state.Quality > maxQuality ? maxQuality : state.Quality) / _sim.Recipe.MaxQuality;
-            double cp = state.Cp / _sim.Crafter.CP;
-            double dur = state.Durability / _sim.Recipe.Durability;
-            return (progress + quality) * 100 + (cp + dur) * 10;
-        }
-
         public List<Action>? Run(int maxTasks)
         {
             int cp = _sim.Crafter.CP + (int)(_sim.Recipe.Durability * MaxDurabilityCost);
@@ -70,6 +54,7 @@ namespace Libraries.Solvers
             _logger($"\n[{DateTime.Now}] Generating Quality Combinations");
             GenerateDfsActionTree(qualityActions, QualityFailure, QualitySuccess, QualitySuccessCallback, QualityScore, QualitySetMaxLength, cp, ignoreProgress: true);
 
+            QualityMerge();
             return _bestSolution?.Value;
         }
 
@@ -91,8 +76,12 @@ namespace Libraries.Solvers
         }
         private void QualitySuccessCallback(double score, List<Action> actions)
         {
+            return; // todo: remove this, its just to count the number of nodes
             if (_bestSolution != null && score < _bestSolution.Value.Key) return;
-            CombineActionLists(actions, _progressLists, progressLeft: false, useDurability: false, MergeProgressSuccessCallback);
+            _scoredQualityLists.Add(new KeyValuePair<double, List<Action>>(score, actions));
+            if (_scoredQualityLists.Count < QualityListMaxLength) return;
+
+            QualityMerge();
         }
 
         private delegate bool FailureCondition(State state);
@@ -148,8 +137,9 @@ namespace Libraries.Solvers
         private void SubDfsActionTree(ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, SuccessCallback successCallback, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress, ref long nodesGenerated, ref long solutionCount)
         {
             if (remainingDepth <= 0) return;
-            foreach (Action action in actions)
+            for (int i = 0; i < actions.Length; i++)
             {
+                Action action = actions[i];
                 State? state = _sim.Simulate(action, node.State, false);
                 if (state == null || failureCondition(state)) continue;
 
@@ -171,19 +161,36 @@ namespace Libraries.Solvers
                 }
 
                 newNode.Parent?.Children.Remove(newNode);
+            }
+        }
 
-                if (remainingDepth == maxLength)
+        private void QualityMerge()
+        {
+            _logger($"[{DateTime.Now}] QUALITY MERGING TIME YOOO");
+            List<KeyValuePair<double, List<Action>>> qualityLists = _scoredQualityLists.OrderBy(x => x.Key)
+                .Select(x => new KeyValuePair<double, List<Action>>(x.Key, x.Value))
+                .ToList();
+            _scoredQualityLists.Clear();
+            for (int i = 0; i < qualityLists.Count; i++)
+            {
+                double key = CombineActionLists(qualityLists[i].Value, _progressLists, progressLeft: false, useDurability: false, MergeProgressSuccessCallback)?.Key ?? -1;
+                if (key <= -1) continue;
+
+                int index = qualityLists.FindIndex(x => x.Key < key);
+                if (index < 0) continue;
+
+                for (int j = index; j < qualityLists.Count; j++)
                 {
-                    _logger($"{action.ShortName} {{{maxLength}}}: {nodesGenerated} generated, {solutionCount} solutions");
+                    qualityLists.RemoveAt(index);
                 }
             }
         }
-        
         private KeyValuePair<double, List<Action>>? CombineActionLists(List<Action> leftList, List<List<Action>> right, bool progressLeft, bool useDurability, SuccessfulCombinationCallback callback)
         {
             KeyValuePair<double, List<Action>>? bestSolution = null;
             if (leftList.Any(x => x.Equals(Atlas.Actions.DelicateSynthesis))) return bestSolution; // todo: really need to figure out how to merge delicate synthesis
-            // double qualityScore = ScoreState(_sim.Simulate(leftList, _startState, useDurability: false));
+            double qualityScore = ScoreState(_sim.Simulate(leftList, _startState, useDurability: false));
+            
             for (int i = 0; i < right.Count; i++)
             {
                 List<Action> rightList = right[i];
@@ -238,7 +245,28 @@ namespace Libraries.Solvers
         }
 
         #region Utilities
-        public static double ListToCpCost(List<Action> list, bool considerDurability = true)
+        private double ScoreState(State? state, bool ignoreProgress = false)
+        {
+            if (state == null || state.WastedActions > 0) return -1;
+
+            bool success = state.Success;
+            if (!success)
+            {
+                var violations = state.CheckViolations();
+                if (!violations.DurabilityOk || !violations.CpOk) return -1;
+            }
+
+            double progress = ignoreProgress ? 0 : (state.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Progress) / _sim.Recipe.Difficulty;
+            double maxQuality = _sim.Recipe.MaxQuality * 1.1;
+            double quality = (state.Quality > maxQuality ? maxQuality : state.Quality) / _sim.Recipe.MaxQuality;
+
+            double cp = state.Cp / _sim.Crafter.CP;
+            double dur = state.Durability / _sim.Recipe.Durability;
+            double extraCredit = success ? 1000 : (cp + dur) * 10;
+
+            return (progress + quality) * 100;
+        }
+        private static double ListToCpCost(List<Action> list, bool considerDurability = true)
         {
             double cpTotal = list.Sum(x => x.CPCost);
             double durabilityTotal = considerDurability ? list.Sum(x => x.DurabilityCost) * MinDurabilityCost : 0;

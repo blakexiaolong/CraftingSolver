@@ -12,27 +12,26 @@ namespace Libraries.Solvers
         private const int QualityListMaxLength = 100000000; // 100 million
 
         private const int ProgressSetMaxLength = 7;
-        private const int QualitySetMaxLength = 10;
+        private const int QualitySetMaxLength = 12;
 
-        private readonly Simulator _sim;
-        private readonly State _startState;
+        private readonly LightSimulator _sim;
+        private readonly LightState _startState;
         private readonly LoggingDelegate _logger;
 
         private readonly Action[] _progressActions, _qualityActions, _durabilityActions;
 
-        private int _countdown = 48;
+        private int _countdown = 4;
         private readonly object _lockObject = new();
 
         private readonly ConcurrentBag<KeyValuePair<double, List<Action>>> _scoredProgressLists = new(), _scoredQualityLists = new();
         private List<List<Action>> _progressLists = new();
         private KeyValuePair<double, List<Action>>? _bestSolution;
 
-        public JaboaSolver(Simulator sim, LoggingDelegate loggingDelegate)
+        public JaboaSolver(LightSimulator sim, LoggingDelegate loggingDelegate)
         {
             _sim = sim;
             _logger = loggingDelegate;
-            // ReSharper disable once HeapView.ObjectAllocation.Evident
-            _startState = _sim.Simulate(new List<Action>(), new(_sim, null));
+            _startState = _sim.Simulate(new List<Action>())!.Value;
 
             // ReSharper disable once HeapView.ObjectAllocation.Evident
             _progressActions = new Action[Atlas.Actions.ProgressActions.Length + Atlas.Actions.ProgressBuffs.Length];
@@ -56,7 +55,7 @@ namespace Libraries.Solvers
             _progressLists = _scoredProgressLists.OrderBy(x => x.Key).Select(x=>x.Value).ToList();
             int cpCost = (int)ListToCpCost(_progressLists.First());
             cp = _sim.Crafter.CP + (int)(_sim.Recipe.Durability * MaxDurabilityCost) - cpCost;
-            _logger($"[{DateTime.Now}] Good Lists Found: {_progressLists.Count}\n\t{string.Join(",", _progressLists.First().Select(x => x.ShortName))}");
+            _logger($"\t{string.Join(",", _progressLists.First().Select(x => x.ShortName))}");
             _logger($"[{DateTime.Now}] CP Cost: {cpCost}; CP Remaining: {cp}");
 
             _logger($"\n[{DateTime.Now}] Generating Quality Combinations");
@@ -67,12 +66,12 @@ namespace Libraries.Solvers
         }
 
         #region Delegates
-        private delegate bool SuccessCondition(State state, double score);
-        private bool ProgressSuccess(State state, double score)
+        private delegate bool SuccessCondition(LightState state, double score);
+        private bool ProgressSuccess(LightState state, double score)
         {
-            return state.Success;
+            return state.Success(_sim);
         }
-        private bool QualitySuccess(State state, double score)
+        private bool QualitySuccess(LightState state, double score)
         {
             return _bestSolution == null || score - _bestSolution.Value.Key > 1;
         }
@@ -92,12 +91,12 @@ namespace Libraries.Solvers
             QualityMerge();
         }
 
-        private delegate bool FailureCondition(State state);
-        private bool ProgressFailure(State state)
+        private delegate bool FailureCondition(LightState state);
+        private bool ProgressFailure(LightState state)
         {
             return false;
         }
-        private bool QualityFailure(State state)
+        private bool QualityFailure(LightState state)
         {
             return false;
         }
@@ -119,7 +118,7 @@ namespace Libraries.Solvers
             var solution = InsertDurability(actions, cpMax);
             if (solution == null) return null;
 
-            State? s = _sim.Simulate(solution.Value.Value, _startState);
+            LightState? s = _sim.Simulate(solution.Value.Value);
             if (s == null) return null;
 
             KeyValuePair<double, List<Action>> foundSolution = new(ScoreState(s), solution.Value.Value);
@@ -137,27 +136,34 @@ namespace Libraries.Solvers
         private void GenerateDfsActionTree(Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, SuccessCallback successCallback, NodeScore nodeScore, int maxLength, double cpLimit, bool ignoreProgress)
         {
             GCLatencyMode oldMode = GCSettings.LatencyMode;
+            // ReSharper disable once HeapView.ObjectAllocation.Evident
             ActionNode head = new ActionNode(null, _startState, null!);
             try
             {
                 GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
                 var s = SubDfsActionTree(head, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, maxLength, cpLimit, ignoreProgress);
                 _logger($"[{DateTime.Now}] Nodes Generated: {s.NodesGenerated} | Solutions Found: {s.SolutionCount}");
-                _logger($"[{DateTime.Now}] Sorted");
             }
             finally
             {
                 GCSettings.LatencyMode = oldMode;
             }
         }
-        private DfsState SubDfsActionTree( ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, SuccessCallback successCallback, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress)
+        private DfsState SubDfsActionTree(ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, SuccessCallback successCallback, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress)
         {
             DfsState state = new();
             if (remainingDepth <= 0) return state;
-            if (_countdown > 0)
+            if (remainingDepth > 4 && _countdown > 0)
             {
-                lock (_lockObject) _countdown = Math.Min(_countdown - 1, 0);
-                Parallel.ForEach(actions, action => state.Add(SubDfsActionTreeInner(node, action, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth, cpLimit, ignoreProgress)));
+                lock (_lockObject) _countdown = Math.Max(_countdown - 1, 0);
+                Thread[] threads = new Thread[actions.Length];
+                for (int i = 0; i < threads.Length; i++)
+                {
+                    Action action = actions[i];
+                    threads[i] = new Thread(() => state.Add(SubDfsActionTreeInner(node, action, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth, cpLimit, ignoreProgress)));
+                    threads[i].Start();
+                }
+                foreach (var thread in threads) thread.Join();
                 lock (_lockObject) _countdown += 1;
             }
             else
@@ -173,49 +179,37 @@ namespace Libraries.Solvers
         private DfsState SubDfsActionTreeInner(ActionNode node, Action action, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, SuccessCallback successCallback, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress)
         {
             var dfsState = new DfsState();
-            State? state = _sim.Simulate(action, node.State, false);
-            if (state == null || failureCondition(state)) return dfsState;
+            LightState? state = _sim.Simulate(action, node.State, false);
+
+            if (state == null || failureCondition(state.Value)) return dfsState;
 
             double score = ScoreState(state, ignoreProgress: ignoreProgress);
             if (score <= 0) return dfsState;
+            if (_sim.Crafter.CP - state.Value.CP > cpLimit) return dfsState;
 
-            List<Action> path = node.GetPath();
-            path.Add(action);
-            if (ListToCpCost(path) > cpLimit) return dfsState;
-
+            ActionNode newNode;
             dfsState.NodesGenerated++;
-            ActionNode newNode = node.Add(action, state);
+            lock (node)
+            {
+                newNode = node.Add(action, state.Value);
+            }
             dfsState.Add(SubDfsActionTree(newNode, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth - 1, cpLimit, ignoreProgress));
 
-            if (successCondition(state, score))
+            if (successCondition(state.Value, score))
             {
                 dfsState.SolutionCount++;
+                List<Action> path = node.GetPath(state.Value.Step - 1);
+                path.Add(action);
                 successCallback((int)nodeScore(path, score), path);
             }
 
-            newNode.Parent?.Children.Remove(newNode);
+            lock (newNode.Parent)
+            {
+                newNode.Parent.Remove(newNode);
+            }
+
+            if (remainingDepth == maxLength) _logger($"-> {action.Name} ({dfsState.NodesGenerated} generated)");
             return dfsState;
-        }
-
-        private class DfsState
-        {
-            public long NodesGenerated;
-            public long SolutionCount;
-
-            public DfsState()
-            {
-                NodesGenerated = 0;
-                SolutionCount = 0;
-            }
-
-            public void Add(DfsState s)
-            {
-                lock (this)
-                {
-                    NodesGenerated += s.NodesGenerated;
-                    SolutionCount += s.SolutionCount;
-                }
-            }
         }
 
         private void QualityMerge()
@@ -243,7 +237,6 @@ namespace Libraries.Solvers
         {
             KeyValuePair<double, List<Action>>? bestSolution = null;
             if (leftList.Any(x => x.Equals(Atlas.Actions.DelicateSynthesis))) return bestSolution; // todo: really need to figure out how to merge delicate synthesis
-            double qualityScore = ScoreState(_sim.Simulate(leftList, _startState, useDurability: false));
             
             for (int i = 0; i < right.Count; i++)
             {
@@ -263,8 +256,8 @@ namespace Libraries.Solvers
                     List<Action>? actions = ZipLists(leftList, rightList, merger);
                     if (actions == null) continue;
 
-                    State? s = _sim.Simulate(actions, _startState, useDurability);
-                    if (s.Progress < _sim.Recipe.Difficulty) continue;
+                    LightState? s = _sim.Simulate(actions, useDurability);
+                    if (!s.HasValue || s.Value.Progress < _sim.Recipe.Difficulty) continue;
 
                     double score = ScoreState(s);
                     if (_bestSolution != null && score - _bestSolution.Value.Key < 1) continue;
@@ -278,19 +271,19 @@ namespace Libraries.Solvers
         private KeyValuePair<double, List<Action>>? InsertDurability(List<Action> actions, double cpMax)
         {
             List<List<Action>> durabilitySolutions = new();
-            Dictionary<Action, int> actionChoices = _durabilityActions.ToDictionary(action => action, action => 999);
+            Dictionary<Action, int> actionChoices = _durabilityActions.ToDictionary(action => action, _ => 999);
             IEnumerable<List<Action>> results = _durabilityActions.Select(action => new List<Action> { action });
 
             double durabilityCost = actions.Sum(x => x.DurabilityCost) - actions[^1].DurabilityCost;
             double durabilityNeed = durabilityCost - _sim.Recipe.Durability;
             if (durabilityNeed <= 0)
             {
-                return new(ScoreState(_sim.Simulate(actions, _startState)), actions);
+                return new(ScoreState(_sim.Simulate(actions)), actions);
             }
 
             do
             {
-                results = results.SelectMany(result => Iterate(result, actionChoices, true)).Where(result => result.Sum(action => action.CPCost) <= cpMax);
+                results = results.SelectMany(result => Iterate(result, actionChoices, true)).Where(result => result.Sum(action => action.CPCost) <= cpMax).ToList();
                 durabilitySolutions.AddRange(results.Where(result => MaxDurabilityGain(result, actions) >= durabilityNeed));
             } while (results.Any());
 
@@ -299,27 +292,27 @@ namespace Libraries.Solvers
         }
 
         #region Utilities
-        private double ScoreState(State? state, bool ignoreProgress = false)
+        private double ScoreState(LightState? state, bool ignoreProgress = false)
         {
-            if (state == null || state.WastedActions > 0) return -1;
-
-            bool success = state.Success;
+            if (!state.HasValue) return -1;
+            bool success = state.Value.Success(_sim);
             if (!success)
             {
-                var violations = state.CheckViolations();
+                var violations = state.Value.CheckViolations(_sim);
                 if (!violations.DurabilityOk || !violations.CpOk) return -1;
             }
 
-            double progress = ignoreProgress ? 0 : (state.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Progress) / _sim.Recipe.Difficulty;
+            double progress = ignoreProgress ? 0 : (state.Value.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Value.Progress) / _sim.Recipe.Difficulty;
             double maxQuality = _sim.Recipe.MaxQuality * 1.1;
-            double quality = (state.Quality > maxQuality ? maxQuality : state.Quality) / _sim.Recipe.MaxQuality;
+            double quality = (state.Value.Quality > maxQuality ? maxQuality : state.Value.Quality) / _sim.Recipe.MaxQuality;
 
-            double cp = state.Cp / _sim.Crafter.CP;
-            double dur = state.Durability / _sim.Recipe.Durability;
+            double cp = state.Value.CP / _sim.Crafter.CP;
+            double dur = state.Value.Durability / _sim.Recipe.Durability;
             double extraCredit = success ? 1000 : (cp + dur) * 10;
 
             return (progress + quality) * 100;
         }
+
         private static double ListToCpCost(List<Action> list, bool considerDurability = true)
         {
             double cpTotal = list.Sum(x => x.CPCost);
@@ -360,7 +353,7 @@ namespace Libraries.Solvers
                         {
                             if (actions.Count > wnIndex + i)
                             {
-                                maxGain += actions[wnIndex + i].DurabilityCost / 2;
+                                maxGain += actions[wnIndex + i].DurabilityCost / 2F;
                             }
                         }
                         wnIndex += 4;
@@ -370,7 +363,7 @@ namespace Libraries.Solvers
                         {
                             if (actions.Count > wnIndex + i)
                             {
-                                maxGain += actions[wnIndex + i].DurabilityCost / 2;
+                                maxGain += actions[wnIndex + i].DurabilityCost / 2F;
                             }
                         }
                         wnIndex += 8;
@@ -397,7 +390,7 @@ namespace Libraries.Solvers
                 counts.Add(group.First(), group.Count());
             }
 
-            var remainingActions = actionChoices.Where(x => !counts.ContainsKey(x.Key) || x.Value > counts[x.Key]).Select(x => x.Key);
+            var remainingActions = actionChoices.Where(x => !counts.ContainsKey(x.Key) || x.Value > counts[x.Key]).Select(x => x.Key).ToList();
             if (!qualityOnly && !remainingActions.Any(x => x.ProgressIncreaseMultiplier > 0)) return newSets;
 
             foreach (Action action in remainingActions)

@@ -1,16 +1,13 @@
-﻿using System.Reflection.Metadata.Ecma335;
-
-namespace Libraries
+﻿namespace Libraries
 {
     public class LightSimulator
     {
         public Crafter Crafter { get; }
         public Recipe Recipe { get; }
-        public int MaxLength { get; init; }
 
-        public int EffectiveCrafterLevel { get; }
-        public int LevelDifference { get; }
-        public int PureLevelDifference { get; }
+        private int EffectiveCrafterLevel { get; }
+        private int LevelDifference { get; }
+        private int PureLevelDifference { get; }
         public double BaseProgressIncrease { get; }
         public double BaseQualityIncrease { get; }
 
@@ -20,7 +17,7 @@ namespace Libraries
             Recipe = recipe;
 
             EffectiveCrafterLevel = GetEffectiveCrafterLevel();
-            LevelDifference = Math.Min(49, Math.Max(-30, EffectiveCrafterLevel - Recipe.Level));
+            LevelDifference = Math.Min(49, Math.Max(-30, EffectiveCrafterLevel - Recipe.RLevel));
             PureLevelDifference = Crafter.Level - Recipe.Level;
             BaseProgressIncrease = CalculateBaseProgressIncrease();
             BaseQualityIncrease = CalculateBaseQualityIncrease();
@@ -76,10 +73,10 @@ namespace Libraries
                 durability = state.Value.Durability;
                 innerQuiet = state.Value.InnerQuiet;
                 step = state.Value.Step;
-                countdowns = state.Value.CountDowns.ToDictionary(x => x.Key, y => y.Value);
+                countdowns = state.Value.CountDowns.ToDictionary(x => x.Key, y => new LightEffect(y.Value.RemainingRounds) { Used = y.Value.Used });
             }
         }
-        private static LightState SetState(double progress, double quality, double cp, double durability, int innerQuiet, int step, Dictionary<Action, LightEffect>  countdowns)
+        private static LightState SetState(double progress, double quality, double cp, double durability, int innerQuiet, int step, Dictionary<Action, LightEffect> countdowns)
         {
             return new LightState
             {
@@ -99,13 +96,8 @@ namespace Libraries
             if (progress >= Recipe.Difficulty) return false; // throw new WastedActionException("OverProgress");
             if (durability <= 0) return false; // throw new WastedActionException("OutOfDurability");
             if (cp - action.CPCost < 0) return false; // throw new WastedActionException("OutOfCp");
-            switch (step)
-            {
-                case > 0 when action.Equals(Atlas.Actions.Reflect) || action.Equals(Atlas.Actions.MuscleMemory):
-                    return false; // throw new WastedActionException("NonFirstTurn");
-                case > 0 when PureLevelDifference >= 10 && !Recipe.IsExpert && action.Equals(Atlas.Actions.TrainedEye):
-                    return false; // throw new WastedActionException("NonFirstTurn");
-            }
+            if (step > 0 && (action.Equals(Atlas.Actions.Reflect) || action.Equals(Atlas.Actions.MuscleMemory) || action.Equals(Atlas.Actions.TrainedEye))) return false; // throw new WastedActionException("NonFirstRound");
+            if (action.Equals(Atlas.Actions.TrainedEye) && (PureLevelDifference >= 10 || !Recipe.IsExpert)) return false;  // throw new WastedActionException("UntrainedEye");
             if (action.Equals(Atlas.Actions.ByregotsBlessing) && innerQuiet == 0) return false; // throw new WastedActionException("ByregotsWithoutIQ");
             if (action.Equals(Atlas.Actions.TrainedFinesse) && innerQuiet < 10) return false; // throw new WastedActionException("UntrainedFinesse");
             if ((action.Equals(Atlas.Actions.FocusedSynthesis) || action.Equals(Atlas.Actions.FocusedTouch)) && !countdowns.ContainsKey(Atlas.Actions.Observe)) return false; // throw new WastedActionException("Unfocused");
@@ -147,6 +139,8 @@ namespace Libraries
             }
             #endregion
 
+            durability -= durabilityCost;
+            
             #region Durability Restoration
             if (action.Equals(Atlas.Actions.MastersMend))
             {
@@ -202,7 +196,7 @@ namespace Libraries
 
             step      += 1;
             innerQuiet = Math.Min(innerQuiet, 10);
-            durability = Math.Min(durability - durabilityCost, Recipe.Durability);
+            durability = Math.Min(durability, Recipe.Durability);
             cp         = Math.Min(cp - cpCost, Crafter.CP);
 
             return true;
@@ -310,11 +304,6 @@ namespace Libraries
             }
             return hqPercent;
         }
-    }
-
-    public class WastedActionException : Exception
-    {
-        public WastedActionException(string message) : base(message) { }
     }
 
     public class LightEffect

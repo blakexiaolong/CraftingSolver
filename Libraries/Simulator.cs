@@ -21,7 +21,7 @@
         public void Initialize()
         {
             EffectiveCrafterLevel = GetEffectiveCrafterLevel();
-            LevelDifference = Math.Min(49, Math.Max(-30, EffectiveCrafterLevel - Recipe.Level));
+            LevelDifference = Math.Min(49, Math.Max(-30, EffectiveCrafterLevel - Recipe.RLevel));
             PureLevelDifference = Crafter.Level - Recipe.Level;
             BaseProgressIncrease = CalculateBaseProgressIncrease();
             BaseQualityIncrease = CalculateBaseQualityIncrease();

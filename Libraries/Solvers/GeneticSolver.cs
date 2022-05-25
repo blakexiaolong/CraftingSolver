@@ -178,7 +178,7 @@ namespace Libraries.Solvers
             return actions.Take(finishState.LastStep).ToList();
         }
 
-        public List<Action?> Run(int maxTasks)
+        public List<Action> Run(int maxTasks)
         {
             int generation = 1;
 

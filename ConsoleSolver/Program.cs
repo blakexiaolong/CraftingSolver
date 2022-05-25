@@ -6,7 +6,8 @@ using Action = Libraries.Action;
 Recipe
     newNeoIshgardian = new()
     {
-        Level = 480,
+        Level = 80,
+        RLevel = 480,
         Difficulty = 2800,
         Durability = 70,
         StartQuality = 0,
@@ -18,7 +19,8 @@ Recipe
     },
     newExarchic = new()
     {
-        Level = 510,
+        Level = 80,
+        RLevel = 510,
         Difficulty = 3600,
         Durability = 70,
         StartQuality = 0,
@@ -30,7 +32,8 @@ Recipe
     },
     tsai = new()
     {
-        Level = 555,
+        Level = 89,
+        RLevel = 555,
         Difficulty = 3400,
         StartQuality = 0,
         MaxQuality = 7100,
@@ -42,7 +45,8 @@ Recipe
     },
     chondriteAlembic = new()
     {
-        Level = 560,
+        Level = 90,
+        RLevel = 560,
         Difficulty = 3500,
         StartQuality = 0,
         MaxQuality = 7200,
@@ -54,7 +58,8 @@ Recipe
     },
     bluefeatherBarding = new()
     {
-        Level = 570,
+        Level = 90,
+        RLevel = 570,
         Difficulty = 3700,
         StartQuality = 0,
         MaxQuality = 7400,
@@ -66,7 +71,8 @@ Recipe
     },
     classicalMilpreves = new()
     {
-        Level = 580,
+        Level = 90,
+        RLevel = 580,
         Difficulty = 3900,
         StartQuality = 0,
         MaxQuality = 10920,
@@ -111,17 +117,22 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-Simulator sim = new(newBuffed, bluefeatherBarding)
-{
-    MaxLength = 30,
-};
-sim.Initialize();
-
+LightSimulator sim = new(newBuffed, bluefeatherBarding);
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
+var s = sim.Simulate(new List<Action>()
+{
+    Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis,
+    Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.PrudentTouch,
+    Atlas.Actions.Manipulation, Atlas.Actions.MastersMend, Atlas.Actions.Innovation, Atlas.Actions.DelicateSynthesis,
+    Atlas.Actions.PreparatoryTouch, Atlas.Actions.GreatStrides, Atlas.Actions.PreparatoryTouch, Atlas.Actions.DelicateSynthesis
+});
+var b = s?.Success(sim);
+
 var solver = new JaboaSolver(sim, Console.WriteLine);
 var solution = solver.Run(maxTasks);
+if (solution == null) return;
 Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));
 Console.WriteLine("Press Enter to exit");
 Console.ReadLine();

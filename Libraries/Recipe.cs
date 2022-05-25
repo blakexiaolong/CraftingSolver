@@ -2,7 +2,8 @@
 {
     public struct Recipe
     {
-        public int Level { get; init; }
+        public int Level { get; set; }
+        public int RLevel { get; init; }
         public int Difficulty { get; init; }
         public int Durability { get; init; }
         public int StartQuality { get; init; }

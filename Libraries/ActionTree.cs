@@ -2,12 +2,12 @@
 {
     public class ActionNode
     {
-        public Action? Action { get; set; }
-        public State? State { get; set; }
-        public List<ActionNode> Children { get; set; }
-        public ActionNode? Parent { get; set; }
+        private Action? Action { get; set; }
+        public LightState State { get; set; }
+        private List<ActionNode> Children { get; set; }
+        public ActionNode Parent { get; set; }
 
-        public ActionNode(Action? action, State state, ActionNode parent)
+        public ActionNode(Action? action, LightState state, ActionNode parent)
         {
             Action = action;
             Children = new();
@@ -15,18 +15,23 @@
             State = state;
         }
 
-        public ActionNode Add(Action action, State state)
+        public ActionNode Add(Action action, LightState state)
         {
             ActionNode node = new(action, state, this);
             Children.Add(node);
             return node;
         }
 
-        public List<Action> GetPath()
+        public void Remove(ActionNode node)
         {
-            List<Action> path = new();
+            Children.Remove(node);
+        }
+
+        public List<Action> GetPath(int length)
+        {
+            List<Action> path = new(length);
             ActionNode head = this;
-            while (head.Action != null && head.Parent != null)
+            while (head.Action != null)
             {
                 path.Insert(0, head.Action);
                 head = head.Parent;

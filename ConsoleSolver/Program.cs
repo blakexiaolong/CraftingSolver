@@ -123,10 +123,7 @@ Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var s = sim.Simulate(new List<Action>()
 {
-    Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis,
-    Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.PrudentTouch,
-    Atlas.Actions.Manipulation, Atlas.Actions.MastersMend, Atlas.Actions.Innovation, Atlas.Actions.DelicateSynthesis,
-    Atlas.Actions.PreparatoryTouch, Atlas.Actions.GreatStrides, Atlas.Actions.PreparatoryTouch, Atlas.Actions.DelicateSynthesis
+    Atlas.Actions.BasicTouch, Atlas.Actions.StandardTouch, Atlas.Actions.AdvancedTouch
 });
 var b = s?.Success(sim);
 

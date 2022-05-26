@@ -12,7 +12,7 @@ namespace Libraries.Solvers
         private const int QualityListMaxLength = 100000000; // 100 million
 
         private const int ProgressSetMaxLength = 7;
-        private const int QualitySetMaxLength = 12;
+        private const int QualitySetMaxLength = 9;
 
         private readonly LightSimulator _sim;
         private readonly LightState _startState;
@@ -152,25 +152,30 @@ namespace Libraries.Solvers
         private DfsState SubDfsActionTree(ActionNode node, Action[] actions, FailureCondition failureCondition, SuccessCondition successCondition, SuccessCallback successCallback, NodeScore nodeScore, int maxLength, int remainingDepth, double cpLimit, bool ignoreProgress)
         {
             DfsState state = new();
-            if (remainingDepth <= 0) return state;
-            if (remainingDepth > 4 && _countdown > 0)
+            switch (remainingDepth)
             {
-                lock (_lockObject) _countdown = Math.Max(_countdown - 1, 0);
-                Thread[] threads = new Thread[actions.Length];
-                for (int i = 0; i < threads.Length; i++)
+                case <= 0: return state;
+                case > 4 when _countdown > 0:
                 {
-                    Action action = actions[i];
-                    threads[i] = new Thread(() => state.Add(SubDfsActionTreeInner(node, action, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth, cpLimit, ignoreProgress)));
-                    threads[i].Start();
+                    lock (_lockObject) _countdown = Math.Max(_countdown - 1, 0);
+                    Thread[] threads = new Thread[actions.Length];
+                    for (int i = 0; i < threads.Length; i++)
+                    {
+                        Action action = actions[i];
+                        threads[i] = new Thread(() => state.Add(SubDfsActionTreeInner(node, action, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth, cpLimit, ignoreProgress)));
+                        threads[i].Start();
+                    }
+                    foreach (var thread in threads) thread.Join();
+                    lock (_lockObject) _countdown += 1;
+                    break;
                 }
-                foreach (var thread in threads) thread.Join();
-                lock (_lockObject) _countdown += 1;
-            }
-            else
-            {
-                foreach (var action in actions)
+                default:
                 {
-                    state.Add(SubDfsActionTreeInner(node, action, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth, cpLimit, ignoreProgress));
+                    foreach (var action in actions)
+                    {
+                        state.Add(SubDfsActionTreeInner(node, action, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth, cpLimit, ignoreProgress));
+                    }
+                    break;
                 }
             }
             return state;
@@ -184,15 +189,16 @@ namespace Libraries.Solvers
             if (state == null || failureCondition(state.Value)) return dfsState;
 
             double score = ScoreState(state, ignoreProgress: ignoreProgress);
-            if (score <= 0) return dfsState;
+            if (score < 0) return dfsState;
             if (_sim.Crafter.CP - state.Value.CP > cpLimit) return dfsState;
 
             ActionNode newNode;
-            dfsState.NodesGenerated++;
             lock (node)
             {
                 newNode = node.Add(action, state.Value);
             }
+            
+            dfsState.NodesGenerated++;
             dfsState.Add(SubDfsActionTree(newNode, actions, failureCondition, successCondition, successCallback, nodeScore, maxLength, remainingDepth - 1, cpLimit, ignoreProgress));
 
             if (successCondition(state.Value, score))

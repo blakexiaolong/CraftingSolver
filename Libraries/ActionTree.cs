@@ -2,7 +2,7 @@
 {
     public class ActionNode
     {
-        private Action? Action { get; set; }
+        public Action? Action { get; set; }
         public LightState State { get; set; }
         private List<ActionNode> Children { get; set; }
         public ActionNode Parent { get; set; }

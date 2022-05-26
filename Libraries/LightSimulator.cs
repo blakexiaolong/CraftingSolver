@@ -25,35 +25,32 @@
 
         public LightState? Simulate(IEnumerable<Action> actions, bool useDurability = true)
         {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, LightEffect> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
                 if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-
         public LightState? Simulate(Action action, bool useDurability = true)
         {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, LightEffect> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-
         public LightState? Simulate(IEnumerable<Action> actions, LightState startState, bool useDurability = true)
         {
-            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, LightEffect> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
                 if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-
         public LightState? Simulate(Action action, LightState startState, bool useDurability = true)
         {
-            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, LightEffect> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
 
-        private static void ExtractState(LightState? state, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, LightEffect> countdowns, double startQuality, double startCp, double startDurability)
+        private static void ExtractState(LightState? state, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, double startQuality, double startCp, double startDurability)
         {
             if (state == null)
             {
@@ -73,10 +70,14 @@
                 durability = state.Value.Durability;
                 innerQuiet = state.Value.InnerQuiet;
                 step = state.Value.Step;
-                countdowns = state.Value.CountDowns.ToDictionary(x => x.Key, y => new LightEffect(y.Value.RemainingRounds) { Used = y.Value.Used });
+                countdowns = new(state.Value.CountDowns.Count);
+                foreach (var kvp in state.Value.CountDowns)
+                {
+                    countdowns.Add(kvp.Key, kvp.Value);
+                }
             }
         }
-        private static LightState SetState(double progress, double quality, double cp, double durability, int innerQuiet, int step, Dictionary<Action, LightEffect> countdowns)
+        private static LightState SetState(double progress, double quality, double cp, double durability, int innerQuiet, int step, Dictionary<Action, int> countdowns)
         {
             return new LightState
             {
@@ -90,7 +91,7 @@
             };
         }
 
-        private bool Simulate(Action action, ref double progress, ref double quality, ref double cp, ref double durability, ref int innerQuiet, ref int step, Dictionary<Action, LightEffect> countdowns, bool useDurability)
+        private bool Simulate(Action action, ref double progress, ref double quality, ref double cp, ref double durability, ref int innerQuiet, ref int step, Dictionary<Action, int> countdowns, bool useDurability)
         {
             #region Wasted Action Checks
             if (progress >= Recipe.Difficulty) return false; // throw new WastedActionException("OverProgress");
@@ -105,104 +106,95 @@
             #endregion
 
             int cpCost = action.CPCost;
-            double durabilityCost = useDurability ? action.DurabilityCost : 0;
             progress += Math.Floor(BaseProgressIncrease * action.ProgressIncreaseMultiplier * CalcProgressMultiplier(action, countdowns, durability));
             quality += Math.Floor(action.Equals(Atlas.Actions.TrainedEye) ? Recipe.MaxQuality : BaseQualityIncrease * action.QualityIncreaseMultiplier * CalcQualityMultiplier(action, countdowns, innerQuiet));
 
             #region Combos
-            if (action.Equals(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.BasicTouch].RemainingRounds == 1)
+            if (action.Equals(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.BasicTouch] == 2)
             {
                 cpCost = 18;
             }
-            else if (action.Equals(Atlas.Actions.AdvancedTouch) && countdowns.ContainsKey(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.StandardTouch].RemainingRounds == 1 && countdowns[Atlas.Actions.BasicTouch].RemainingRounds == 0)
+            else if (action.Equals(Atlas.Actions.AdvancedTouch) && countdowns.ContainsKey(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.StandardTouch] == 1 && countdowns[Atlas.Actions.BasicTouch] == 1)
             {
                 cpCost = 18;
             }
             #endregion
 
-            #region Waste Not
-            bool wn = false;
-            if (countdowns.ContainsKey(Atlas.Actions.WasteNot))
+            #region Durability
+            if (!useDurability) 
             {
-                wn = false;
-                countdowns[Atlas.Actions.WasteNot].Used = true;
-            }
-            else if (countdowns.ContainsKey(Atlas.Actions.WasteNot2))
-            {
-                wn = false;
-                countdowns[Atlas.Actions.WasteNot2].Used = true;
-            }
+                double durabilityCost = action.DurabilityCost;
+                
+                #region Waste Not
 
-            if (wn)
-            {
-                durabilityCost *= 0.5;
-            }
-            #endregion
+                bool wn = false;
+                if (countdowns.ContainsKey(Atlas.Actions.WasteNot))
+                {
+                    wn = false;
+                    if (countdowns[Atlas.Actions.WasteNot] > 0) countdowns[Atlas.Actions.WasteNot] *= -1;
+                }
+                else if (countdowns.ContainsKey(Atlas.Actions.WasteNot2))
+                {
+                    wn = false;
+                    if (countdowns[Atlas.Actions.WasteNot2] > 0) countdowns[Atlas.Actions.WasteNot2] *= -1;
+                }
 
-            durability -= durabilityCost;
-            
-            #region Durability Restoration
-            if (action.Equals(Atlas.Actions.MastersMend))
-            {
-                durability += 30;
-            }
-            if (countdowns.ContainsKey(Atlas.Actions.Manipulation) && durability > 0 && action != Atlas.Actions.Manipulation)
-            {
-                durability += 5;
+                if (wn)
+                {
+                    durabilityCost *= 0.5;
+                }
+
+                #endregion
+
+                durability -= durabilityCost;
+
+                #region Durability Restoration
+
+                if (action.Equals(Atlas.Actions.MastersMend)) durability += 30;
+                if (countdowns.ContainsKey(Atlas.Actions.Manipulation) && durability > 0 &&
+                    action != Atlas.Actions.Manipulation) durability += 5;
+
+                #endregion
+                
+                durability = Math.Min(durability, Recipe.Durability);
             }
             #endregion
 
             #region Inner Quiet
-            if (action.Equals(Atlas.Actions.ByregotsBlessing))
-            {
-                innerQuiet = 0;
-            }
-            else if (action.Equals(Atlas.Actions.Reflect))
-            {
-                innerQuiet = 2;
-            }
-            else if (action.Equals(Atlas.Actions.PreparatoryTouch))
-            {
-                innerQuiet += 2;
-            }
-            else if (action.QualityIncreaseMultiplier > 0)
-            {
-                innerQuiet += 1;
-            }
+            if (action.Equals(Atlas.Actions.ByregotsBlessing)) innerQuiet = 0;
+            else if (action.Equals(Atlas.Actions.Reflect)) innerQuiet = 2;
+            else if (action.Equals(Atlas.Actions.PreparatoryTouch)) innerQuiet += 2;
+            else if (action.QualityIncreaseMultiplier > 0) innerQuiet += 1;
             #endregion
 
             #region Countdowns
             foreach (var buff in countdowns)
             {
-                if (countdowns[buff.Key].RemainingRounds-- == 0)
+                switch (countdowns[buff.Key])
                 {
-                    if (!countdowns[buff.Key].Used) return false; // throw new WastedActionException("UnusedBuff");
-                    countdowns.Remove(buff.Key);
+                    case > 0 when countdowns[buff.Key]-- == 0:
+                        return false; // throw new WastedActionException("UnusedBuff");
+                    case < 0 when countdowns[buff.Key]++ == 0:
+                        countdowns.Remove(buff.Key);
+                        break;
                 }
             }
 
             if (action.ActionType == ActionType.CountDown)
             {
-                if (countdowns.ContainsKey(action))
-                {
-                    countdowns[action].RemainingRounds = action.ActiveTurns;
-                }
-                else
-                {
-                    countdowns.Add(action, new LightEffect(action.ActiveTurns));
-                }
+                if (countdowns.ContainsKey(action)) countdowns[action] = action.ActiveTurns;
+                else countdowns.Add(action, action.ActiveTurns);
             }
             #endregion
 
             step      += 1;
             innerQuiet = Math.Min(innerQuiet, 10);
-            durability = Math.Min(durability, Recipe.Durability);
             cp         = Math.Min(cp - cpCost, Crafter.CP);
 
             return true;
         }
         
-        private static double CalcProgressMultiplier(Action action, Dictionary<Action, LightEffect> countdowns, double durability)
+        private static double CalcProgressMultiplier(Action action, Dictionary<Action, int> countdowns, double durability)
         {
             if (action.ProgressIncreaseMultiplier == 0) return 0;
 
@@ -216,7 +208,7 @@
             if (countdowns.ContainsKey(Atlas.Actions.Veneration))
             {
                 progressIncreaseMultiplier += 0.5;
-                countdowns[Atlas.Actions.Veneration].Used = true;
+                if (countdowns[Atlas.Actions.Veneration] > 0) countdowns[Atlas.Actions.Veneration] *= -1;
             }
 
             if (action.Equals(Atlas.Actions.Groundwork) && durability < Atlas.Actions.Groundwork.DurabilityCost)
@@ -226,7 +218,7 @@
 
             return progressIncreaseMultiplier;
         }
-        private static double CalcQualityMultiplier(Action action, Dictionary<Action, LightEffect> countdowns, int innerQuiet)
+        private static double CalcQualityMultiplier(Action action, Dictionary<Action, int> countdowns, int innerQuiet)
         {
             if (action.QualityIncreaseMultiplier == 0) return 0;
 
@@ -239,7 +231,7 @@
             if (countdowns.ContainsKey(Atlas.Actions.Innovation))
             {
                 qualityIncreaseMultiplier += 0.5;
-                countdowns[Atlas.Actions.Innovation].Used = true;
+                if (countdowns[Atlas.Actions.Innovation] > 0) countdowns[Atlas.Actions.Innovation] *= -1;
             }
             
             if (action.Equals(Atlas.Actions.ByregotsBlessing))
@@ -306,18 +298,6 @@
         }
     }
 
-    public class LightEffect
-    {
-        public int RemainingRounds { get; set; }
-        public bool Used { get; set; }
-        
-        public LightEffect(int remainingRounds)
-        {
-            RemainingRounds = remainingRounds;
-            Used = false;
-        }
-    }
-
     public readonly struct LightState
     {
         public int Step { get; init; }
@@ -326,7 +306,7 @@
         public double Quality { get; init; }
         public double Progress { get; init; }
         public int InnerQuiet { get; init; }
-        public Dictionary<Action, LightEffect> CountDowns { get; init; }
+        public Dictionary<Action, int> CountDowns { get; init; }
         public bool Success(LightSimulator sim) => Progress >= sim.Recipe.Difficulty && CP >= 0;
         public StateViolations CheckViolations(LightSimulator sim)
         {

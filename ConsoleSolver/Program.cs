@@ -117,13 +117,13 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, bluefeatherBarding);
+LightSimulator sim = new(newBuffed, classicalMilpreves);
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var s = sim.Simulate(new List<Action>()
 {
-    Atlas.Actions.BasicTouch, Atlas.Actions.StandardTouch, Atlas.Actions.AdvancedTouch
+    Atlas.Actions.Veneration, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis, Atlas.Actions.CarefulSynthesis
 });
 var b = s?.Success(sim);
 

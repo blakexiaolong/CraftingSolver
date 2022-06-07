@@ -5,9 +5,9 @@
         public Crafter Crafter { get; }
         public Recipe Recipe { get; }
 
-        private int EffectiveCrafterLevel { get; }
-        private int LevelDifference { get; }
-        private int PureLevelDifference { get; }
+        public int EffectiveCrafterLevel { get; }
+        public int LevelDifference { get; }
+        public int PureLevelDifference { get; }
         public double BaseProgressIncrease { get; }
         public double BaseQualityIncrease { get; }
 
@@ -121,7 +121,7 @@
             #endregion
 
             #region Durability
-            if (!useDurability) 
+            if (useDurability) 
             {
                 double durabilityCost = action.DurabilityCost;
                 
@@ -172,9 +172,9 @@
             {
                 switch (countdowns[buff.Key])
                 {
-                    case > 0 when countdowns[buff.Key]-- == 0:
+                    case > 0 when --countdowns[buff.Key] == 0:
                         return false; // throw new WastedActionException("UnusedBuff");
-                    case < 0 when countdowns[buff.Key]++ == 0:
+                    case < 0 when ++countdowns[buff.Key] == 0:
                         countdowns.Remove(buff.Key);
                         break;
                 }

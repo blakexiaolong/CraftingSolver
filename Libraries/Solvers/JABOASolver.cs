@@ -1,4 +1,6 @@
 ﻿using System.Collections.Concurrent;
+using System.ComponentModel.Design;
+using System.Formats.Asn1;
 using System.Runtime;
 using static Libraries.Solver;
 
@@ -7,9 +9,9 @@ namespace Libraries.Solvers
     // Just a Bunch of Actions
     public class JaboaSolver : ISolver
     {
+        private int test = 0;
         private const double MaxDurabilityCost = 88 / 30D;
         private const double MinDurabilityCost = 96 / 40D;
-        private const int QualityListMaxLength = 50000000; // 50 million
 
         private const int ProgressSetMaxLength = 7;
         private const int QualitySetMaxLength = 12;
@@ -18,37 +20,33 @@ namespace Libraries.Solvers
         private readonly LightState _startState;
         private readonly LoggingDelegate _logger;
 
-        private readonly Action[] _progressActions, _qualityActions, _durabilityActions;
+        private readonly Action[] _progressActions, _qualityActions;
+        private readonly KeyValuePair<Action, double>[] _durabilityActions;
 
         private int _countdown = 4;
         private readonly object _lockObject = new();
-        private readonly ManualResetEventSlim _mergeEvent = new();
 
-        private readonly ConcurrentBag<KeyValuePair<double, List<Action>>> _scoredProgressLists = new(), _scoredQualityLists = new();
+        private readonly ConcurrentBag<KeyValuePair<double, List<Action>>> _scoredProgressLists = new();
         private List<List<Action>> _progressLists = new();
         private KeyValuePair<double, List<Action>>? _bestSolution;
         private readonly List<KeyValuePair<double, List<Action>>> _durabilityLists = new();
-        private readonly ConcurrentStack<KeyValuePair<double, List<Action>>> _qualityLists = new();
 
         public JaboaSolver(LightSimulator sim, LoggingDelegate loggingDelegate)
         {
             _sim = sim;
             _logger = loggingDelegate;
             _startState = _sim.Simulate(new List<Action>())!.Value;
-
-            // ReSharper disable once HeapView.ObjectAllocation.Evident
-            _progressActions = new Action[Atlas.Actions.ProgressActions.Length + Atlas.Actions.ProgressBuffs.Length];
-            Atlas.Actions.ProgressActions.CopyTo(_progressActions, 0);
-            Atlas.Actions.ProgressBuffs.CopyTo(_progressActions, Atlas.Actions.ProgressActions.Length);
             
-            var q = new List<Action>();
-            q.AddRange(Atlas.Actions.QualityActions);
-            q.AddRange(Atlas.Actions.QualityBuffs);
+            _progressActions = Atlas.Actions.ProgressActions.Where(x => _sim.Crafter.Actions.Contains(x))
+                .Concat(Atlas.Actions.ProgressBuffs.Where(y => _sim.Crafter.Actions.Contains(y))).ToArray();
+
+            var q = Atlas.Actions.QualityActions.Where(x => _sim.Crafter.Actions.Contains(x))
+                .Concat(Atlas.Actions.QualityBuffs.Where(y => _sim.Crafter.Actions.Contains(y))).ToList();
             if (sim.PureLevelDifference < 10 || sim.Recipe.IsExpert) q.Remove(Atlas.Actions.TrainedEye);
-            q.Remove(Atlas.Actions.DelicateSynthesis);
+            q.Remove(Atlas.Actions.DelicateSynthesis); // todo: put this back in
             _qualityActions = q.ToArray();
 
-            _durabilityActions = Atlas.Actions.DurabilityActions.ToArray();
+            _durabilityActions = Atlas.Actions.DurabilityActions.Where(x => _sim.Crafter.Actions.Contains(x.Key)).ToArray();
         }
 
         public List<Action>? Run(int maxTasks)
@@ -69,8 +67,7 @@ namespace Libraries.Solvers
 
             _logger($"\n[{DateTime.Now}] Generating Quality Combinations");
             GenerateDfsActionTree(_qualityActions, QualityFailure, QualitySuccess, QualitySuccessCallback, QualityScore, QualitySetMaxLength, cp, ignoreProgress: true);
-
-            Merger();
+            
             return _bestSolution?.Value;
         }
         
@@ -86,29 +83,16 @@ namespace Libraries.Solvers
             return _bestSolution == null || score - _bestSolution.Value.Key > 1;
         }
 
-        private delegate void SuccessCallback(double score, List<Action> actions);
-        private void ProgressSuccessCallback(double score, List<Action> actions)
+        private delegate bool SuccessCallback(double score, List<Action> actions);
+        private bool ProgressSuccessCallback(double score, List<Action> actions)
         {
             _scoredProgressLists.Add(new(score, actions));
+            return true;
         }
-        private void QualitySuccessCallback(double score, List<Action> actions)
+        private bool QualitySuccessCallback(double score, List<Action> actions)
         {
-            //return;
-            if (_bestSolution != null && score < _bestSolution.Value.Key) return;
-            if (_mergeEvent.IsSet)
-            {
-                lock (_scoredQualityLists)
-                {
-                    _scoredQualityLists.Add(new(score, actions));
-                }
-
-                Merger();
-            }
-            else
-            {
-                _scoredQualityLists.Add(new(score, actions));
-                if (_scoredQualityLists.Count >= QualityListMaxLength) Merger();
-            }
+            if (_bestSolution != null && _bestSolution.Value.Key - 102 > score) return false;
+            return Merger(actions);
         }
 
         private delegate bool FailureCondition(LightState state);
@@ -196,17 +180,24 @@ namespace Libraries.Solvers
             {
                 newNode = node.Add(action, state.Value);
             }
-            
-            dfsState.NodesGenerated++;
-            dfsState.Add(SubDfsActionTree(newNode, actions, failureCondition, successCondition, successCallback, nodeScore, score, maxLength, remainingDepth - 1, cpLimit, ignoreProgress));
 
+            bool doNextLevel = true;
             if (successCondition(state.Value, score))
             {
                 dfsState.SolutionCount++;
                 List<Action> path = node.GetPath(state.Value.Step - 1);
                 path.Add(action);
                 var s = _sim.Simulate(path, false);
-                successCallback((int)nodeScore(path, score), path);
+                if (!successCallback((int)nodeScore(path, score), path))
+                {
+                    doNextLevel = false;
+                }
+            }
+
+            if (doNextLevel)
+            {
+                dfsState.NodesGenerated++;
+                dfsState.Add(SubDfsActionTree(newNode, actions, failureCondition, successCondition, successCallback, nodeScore, score, maxLength, remainingDepth - 1, cpLimit, ignoreProgress));
             }
 
             lock (newNode.Parent)
@@ -220,126 +211,231 @@ namespace Libraries.Solvers
 
         private void GenerateDurabilityLists(double cpMax)
         {
-            Dictionary<Action, int> actionChoices = _durabilityActions.ToDictionary(action => action, _ => 999);
-            IEnumerable<List<Action>> results = _durabilityActions.Select(action => new List<Action> { action });
+            //Dictionary<Action, int> actionChoices = _durabilityActions.ToDictionary(action => action, _ => 999);
+            //IEnumerable<List<Action>> results = _durabilityActions.Select(action => new List<Action> { action });
 
-            do
-            {
-                results = results.SelectMany(result => Iterate(result, actionChoices, true)).Where(result => result.Sum(action => action.CPCost) <= cpMax).ToList();
-                _durabilityLists.AddRange(results.Select(x => new KeyValuePair<double, List<Action>>(x.Sum(y => y.CPCost), x)));
-            } while (results.Any());
+            //do
+            //{
+            //    results = results.SelectMany(result => Iterate(result, actionChoices, true)).Where(result => result.Sum(action => action.CPCost) <= cpMax).ToList();
+            //    _durabilityLists.AddRange(results.Select(x => new KeyValuePair<double, List<Action>>(x.Sum(y => y.CPCost), x)));
+            //} while (results.Any());
         }
         #endregion
 
-        #region Mergers
-        #region Delegates
-        //private delegate KeyValuePair<double, List<Action>>? SuccessfulCombinationCallback(List<Action> actions, double score, double cpMax);
-        //private KeyValuePair<double, List<Action>>? MergeProgressSuccessCallback(List<Action> actions, double score, double cpMax)
-        //{
-        //    var solution = InsertDurability(actions, cpMax);
-        //    if (solution == null) return null;
-
-        //    LightState? s = _sim.Simulate(solution.Value.Value);
-        //    if (s == null) return null;
-
-        //    KeyValuePair<double, List<Action>> foundSolution = new(ScoreState(s), solution.Value.Value);
-        //    _logger($"[{DateTime.Now}] Best Score: {foundSolution.Key}\n\t{string.Join(",", foundSolution.Value.Select(x => x.ShortName))}");
-
-        //    return foundSolution;
-        //}
-        //private KeyValuePair<double, List<Action>>? MergeDurabilitySuccessCallback(List<Action> actions, double score, double cpMax)
-        //{
-        //    _bestSolution = new KeyValuePair<double, List<Action>>(score, actions);
-        //    return _bestSolution;
-        //}
-        #endregion
-
-        private void Merger()
+        #region Merger
+        private bool Merger(List<Action> qualityList)
         {
-            lock (_scoredQualityLists)
+            bool anySuccess = false;
+            if (qualityList.Any(x => x.Equals(Atlas.Actions.DelicateSynthesis)))
+                return anySuccess; // todo: really need to figure out how to merge delicate synthesis
+
+            for (int i = 0; i < _progressLists.Count; i++)
             {
-                if (_scoredQualityLists.Count >= QualityListMaxLength)
+                List<Action> progressList = _progressLists[i];
+                double cpMax = _sim.Crafter.CP - ListToCpCost(qualityList, false) - ListToCpCost(progressList, false);
+                if (cpMax < 0) continue;
+
+                uint progressMerger = 1;
+                int progressLength = qualityList.Count + progressList.Count;
+                uint maxProgressCombinations = (uint)Math.Pow(2, progressLength);
+                if (Atlas.Actions.FirstRoundActions.Contains(progressList[0]))
                 {
-                    _mergeEvent.Set();
-                    _logger($"[{DateTime.Now}] QUALITY MERGING TIME YOOO {_scoredQualityLists.Count}");
-                    _qualityLists.PushRange(_scoredQualityLists.Take(QualityListMaxLength)
-                        .OrderBy(x => x.Key)
-                        .Select(x => new KeyValuePair<double, List<Action>>(x.Key, x.Value)).ToArray());
-                    _scoredQualityLists.Clear();
+                    progressMerger = (uint)Math.Pow(2, progressLength - 1) + 1;
                 }
-            }
-
-            while (_qualityLists.TryPop(out var qualityList))
-            {
-                if (_bestSolution.HasValue && _bestSolution.Value.Key - 102 > qualityList.Key) continue;
-
-                List<Action> leftList = qualityList.Value;
-                if (leftList.Any(x => x.Equals(Atlas.Actions.DelicateSynthesis))) continue; // todo: really need to figure out how to merge delicate synthesis
-
-                for (int i = 0; i < _progressLists.Count; i++)
+                if (Atlas.Actions.FirstRoundActions.Contains(qualityList[0]))
                 {
-                    List<Action> rightList = _progressLists[i];
-                    double cpMax = _sim.Crafter.CP - ListToCpCost(leftList, false) - ListToCpCost(rightList, false);
-                    if (cpMax < 0) continue;
+                    maxProgressCombinations = (uint)Math.Pow(2, progressLength - 1);
+                }
+                if (progressMerger > maxProgressCombinations) continue;
 
-                    double durabilityCost = leftList.Sum(x => x.DurabilityCost) + rightList.Sum(x => x.DurabilityCost) + 5 - rightList[^1].DurabilityCost;
-                    double durabilityNeed = durabilityCost - _sim.Recipe.Durability;
-                    if (!FetchDurabilityLists(leftList.Concat(rightList), cpMax, durabilityNeed).Any()) continue;
+                do
+                {
+                    if (System.Numerics.BitOperations.PopCount(progressMerger) != progressList.Count) continue;
 
-                    int[] progressMerger = new int[leftList.Count + rightList.Count];
-                    for (int j = 0; j < progressMerger.Length; j++) progressMerger[j] = 0;
-                    int progressLeft = progressMerger.Length;
+                    List<Action> preDurabilityActions = ZipLists(qualityList, progressList, progressMerger, progressLength);
+                    LightState? progressState = _sim.Simulate(preDurabilityActions, false);
+                    if (!progressState.HasValue || progressState.Value.Progress < _sim.Recipe.Difficulty) continue;
 
-                    do
+                    double progressScore = ScoreState(progressState);
+                    if (progressScore < 0) continue;
+                    if (_bestSolution != null && progressScore - _bestSolution.Value.Key < 3) continue;
+
+                    // insert durability
+                    if (MinMaxSolveDurability(preDurabilityActions, progressState.Value.CP, out var postDurabilityActions))
                     {
-                        if (progressLeft != leftList.Count) continue;
-                        if (progressMerger[^1] == 0) continue;
-                        if (Atlas.Actions.FirstRoundActions.Contains(leftList[0]) && progressMerger[0] == 1) continue;
-                        if (Atlas.Actions.FirstRoundActions.Contains(rightList[0]) && progressMerger[0] == 0) continue;
-
-                        List<Action> preDurabilityActions = ZipLists(leftList, rightList, progressMerger);
-                        LightState? progressState = _sim.Simulate(preDurabilityActions, false);
-                        if (!progressState.HasValue || progressState.Value.Progress < _sim.Recipe.Difficulty) continue;
-
-                        double progressScore = ScoreState(progressState);
-                        if (_bestSolution != null && progressScore - _bestSolution.Value.Key < 1) continue;
-
-                        // insert durability
-                        cpMax = progressState.Value.CP;
-                        durabilityCost = preDurabilityActions.Sum(x => x.DurabilityCost) + 5 - preDurabilityActions[^1].DurabilityCost;
-                        durabilityNeed = durabilityCost - _sim.Recipe.Durability;
-                        List<List<Action>> durabilityLists = FetchDurabilityLists(preDurabilityActions, cpMax, durabilityNeed).ToList();
-
-
-                        for (int j = 0; j < durabilityLists.Count; j++)
+                        anySuccess = true;
+                        double newScore = ScoreState(_sim.Simulate(postDurabilityActions!));
+                        lock (_lockObject)
                         {
-                            List<Action> durabilityList = durabilityLists[j];
-                            int[] durabilityMerger = new int[preDurabilityActions.Count + durabilityList.Count];
-                            for (int k = 0; k < durabilityList.Count; k++) durabilityMerger[k] = 0;
-                            int durabilityLeft = durabilityMerger.Length;
+                            if (_bestSolution != null && newScore - _bestSolution.Value.Key < 3) continue;
 
-                            do
-                            {
-                                if (durabilityLeft != preDurabilityActions.Count) continue;
-                                if (durabilityMerger[^1] == 1) continue;
-                                if (Atlas.Actions.FirstRoundActions.Contains(preDurabilityActions[0]) && durabilityMerger[0] == 1) continue;
-
-                                List<Action> postDurabilityActions = ZipLists(preDurabilityActions, durabilityList, durabilityMerger);
-                                LightState? durabilityState = _sim.Simulate(postDurabilityActions);
-                                if (!durabilityState.HasValue || durabilityState.Value.Progress < _sim.Recipe.Difficulty) continue;
-
-                                double durabilityScore = ScoreState(durabilityState);
-                                if (_bestSolution != null && durabilityScore - _bestSolution.Value.Key < 1) continue;
-
-                                _logger($"[{DateTime.Now}] New Best Solution Found ({durabilityScore}):");
-                                _logger($"\t{string.Join(",", postDurabilityActions.Select(x => x.ShortName))}");
-                                _bestSolution = new(durabilityScore, postDurabilityActions);
-                            } while (Iterate(durabilityMerger, durabilityMerger.Length - 1, ref durabilityLeft));
+                            _logger($"[{DateTime.Now}] New Best Solution Found ({newScore}):");
+                            _logger($"\t{string.Join(",", postDurabilityActions!.Select(x => x.ShortName))}");
+                            _bestSolution = new(newScore, postDurabilityActions!);
                         }
-                    } while (Iterate(progressMerger, progressMerger.Length - 1, ref progressLeft));
+                    }
+                    //cpMax = progressState.Value.CP;
+                    //double durabilityCost = preDurabilityActions.Sum(x => x.DurabilityCost) + 5 - preDurabilityActions[^1].DurabilityCost;
+                    //double durabilityNeed = durabilityCost - _sim.Recipe.Durability;
+                    //if (durabilityNeed <= 0)
+                    //{
+                    //    anySuccess = true;
+                    //    lock (_lockObject)
+                    //    {
+                    //        if (_bestSolution != null && progressScore - _bestSolution.Value.Key < 1) continue;
+
+                    //        _logger($"[{DateTime.Now}] New Best Solution Found ({progressScore}):");
+                    //        _logger($"\t{string.Join(",", preDurabilityActions.Select(x => x.ShortName))}");
+                    //        _bestSolution = new(progressScore, preDurabilityActions);
+                    //        continue;
+                    //    }
+                    //}
+
+                    //List<List<Action>> durabilityLists = FetchDurabilityLists(preDurabilityActions, cpMax, durabilityNeed).ToList();
+                    //for (int j = 0; j < durabilityLists.Count; j++)
+                    //{
+                    //    List<Action> durabilityList = durabilityLists[j];
+                    //    uint durabilityMerger = 1;
+                    //    int durabilityLength = preDurabilityActions.Count + durabilityList.Count;
+                    //    uint maxDurabilityCombinations = (uint)Math.Pow(2, durabilityLength);
+                    //    if (Atlas.Actions.FirstRoundActions.Contains(preDurabilityActions[0]))
+                    //    {
+                    //        durabilityMerger = (uint)Math.Pow(2, durabilityLength - 1) + 1;
+                    //    }
+
+                    //    do
+                    //    {
+                    //        if (System.Numerics.BitOperations.PopCount(durabilityMerger) != durabilityList.Count) continue;
+
+                    //        List<Action> postDurabilityActions = ZipLists(preDurabilityActions, durabilityList, durabilityMerger, durabilityLength);
+                    //        LightState? durabilityState = _sim.Simulate(postDurabilityActions);
+                    //        if (!durabilityState.HasValue || durabilityState.Value.Progress < _sim.Recipe.Difficulty) continue;
+
+                    //        double durabilityScore = ScoreState(durabilityState);
+                    //        if (durabilityScore < 0) continue;
+
+                    //        anySuccess = true;
+                    //        lock (_lockObject)
+                    //        {
+                    //            if (_bestSolution != null && durabilityScore - _bestSolution.Value.Key < 1) continue;
+
+                    //            _logger($"[{DateTime.Now}] New Best Solution Found ({durabilityScore}):");
+                    //            _logger($"\t{string.Join(",", postDurabilityActions.Select(x => x.ShortName))}");
+                    //            _bestSolution = new(durabilityScore, postDurabilityActions);
+                    //        }
+                    //    } while ((durabilityMerger += 1) < maxDurabilityCombinations);
+                    //}
+                } while ((progressMerger += 2) < maxProgressCombinations);
+            }
+
+            return anySuccess;
+        }
+
+        public bool GreedySolveDurability(List<Action> actions, double cpMax, out List<Action>? durabilityActions)
+        {
+            durabilityActions = null;
+            double baseDurabilityCost = GetDurabilityCost(actions, out int stopIx);
+            if (stopIx == actions.Count)
+            {
+                durabilityActions = actions;
+                return true;
+            }
+
+            double bestDurabilitySavings = 0;
+            Action? bestActionChoice = null;
+            List<Action>? bestDurabilityActions = null;
+
+            foreach (var durabilityAction in _durabilityActions)
+            {
+                if (cpMax < durabilityAction.Key.CPCost) continue;
+                if (bestDurabilitySavings > durabilityAction.Value) break;
+                for (int i = 0; i < stopIx; i++)
+                {
+                    actions.Insert(i, durabilityAction.Key);
+                    try
+                    {
+                        LightState? s = _sim.Simulate(actions, useDurability: false);
+                        if (s == null) continue;
+
+                        double durabilitySavings = (baseDurabilityCost - GetDurabilityCost(actions, out int _)) / durabilityAction.Key.CPCost;
+                        if (durabilitySavings > bestDurabilitySavings)
+                        {
+                            bestDurabilitySavings = durabilitySavings;
+                            bestActionChoice = durabilityAction.Key;
+                            bestDurabilityActions = actions.ToList();
+                        }
+                    }
+                    finally
+                    {
+                        actions.RemoveAt(i);
+                    }
                 }
             }
-            _mergeEvent.Reset();
+
+            return bestDurabilitySavings > 0 && GreedySolveDurability(bestDurabilityActions!, cpMax - bestActionChoice!.CPCost, out durabilityActions);
+        }
+
+        private int x = 0;
+        public bool MinMaxSolveDurability(List<Action> actions, double cpMax, out List<Action>? durabilityActions, bool t=true)
+        {
+            durabilityActions = null;
+            double baseDurabilityCost = GetDurabilityCost(actions, out int stopIx);
+            if (stopIx == actions.Count)
+            {
+                durabilityActions = actions;
+                return true;
+            }
+
+            List<KeyValuePair<double, List<Action>>> durabilityLists = new();
+            foreach (var durabilityAction in _durabilityActions)
+            {
+                if (durabilityAction.Key == Atlas.Actions.Manipulation)
+                {
+
+                }
+                if (cpMax < durabilityAction.Key.CPCost) continue;
+                for (int i = 0; i < stopIx; i++)
+                {
+                    actions.Insert(i, durabilityAction.Key);
+                    try
+                    {
+                        LightState? s = _sim.Simulate(actions, useDurability: false);
+                        if (s == null) continue;
+
+                        double newDurabilityCost = GetDurabilityCost(actions, out int _);
+                        if (newDurabilityCost >= baseDurabilityCost) continue;
+
+                        //double durabilitySavings = (baseDurabilityCost - newDurabilityCost) / durabilityAction.Key.CPCost;
+                        durabilityLists.Add(new(cpMax - durabilityAction.Key.CPCost, actions.ToList()));
+                    }
+                    finally
+                    {
+                        actions.RemoveAt(i);
+                    }
+                }
+            }
+
+            double bestScore = 0;
+            foreach (var durabilityList in durabilityLists)
+            {
+                if (!MinMaxSolveDurability(durabilityList.Value, durabilityList.Key, out var solved, t: false)) continue;
+
+                LightState? s = _sim.Simulate(solved!, useDurability: true);
+                if (s == null || !s.Value.Success(_sim)) continue;
+
+                double newScore = ScoreState(s);
+                if (!(newScore > bestScore)) continue;
+
+                bestScore = newScore;
+                durabilityActions = solved;
+            }
+
+            x++;
+            if (t)
+            {
+
+            }
+            return bestScore > 0;
         }
 
         private IEnumerable<List<Action>> FetchDurabilityLists(IEnumerable<Action> actions, double cpMax, double durabilityNeed)
@@ -366,10 +462,10 @@ namespace Libraries.Solvers
             double quality = (state.Value.Quality > maxQuality ? maxQuality : state.Value.Quality) / _sim.Recipe.MaxQuality;
 
             double cp = state.Value.CP / _sim.Crafter.CP;
-            double dur = state.Value.Durability / _sim.Recipe.Durability;
-            double extraCredit = success ? 1000 : (cp + dur) * 10;
+            double dur = (100 - state.Value.Step) / 100D;
+            double extraCredit = (cp + dur) * 10;
 
-            return (progress + quality) * 100;
+            return (progress + quality) * 100 + extraCredit + (success ? 20 : 0);
         }
 
         private static double ListToCpCost(List<Action> list, bool considerDurability = true)
@@ -394,6 +490,55 @@ namespace Libraries.Solvers
             }
 
             return cpTotal + observeCost + durabilityTotal - comboSavings;
+        }
+
+        public double GetDurabilityCost(List<Action> actions, out int stopIx)
+        {
+            double dur = _sim.Recipe.Durability;
+            double cost = 0;
+            int wnRounds = 0;
+            int manipRounds = 0;
+            stopIx = actions.Count;
+
+            for (int i = 0; i < actions.Count - 1; i++)
+            {
+                var action = actions[i];
+                if (action.Equals(Atlas.Actions.WasteNot))
+                {
+                    wnRounds = 4;
+                }
+                else if (action.Equals(Atlas.Actions.WasteNot2))
+                {
+                    wnRounds = 8;
+                }
+                else if (action.Equals(Atlas.Actions.Manipulation))
+                {
+                    manipRounds = 8;
+                }
+                else if (action.Equals(Atlas.Actions.MastersMend))
+                {
+                    cost -= 30;
+                    dur += 30;
+                }
+                else
+                {
+                    cost += wnRounds > 0 ? action.DurabilityCost / 2 : action.DurabilityCost;
+                    dur -= wnRounds > 0 ? action.DurabilityCost / 2 : action.DurabilityCost;
+                }
+
+                if (dur <= 0 && stopIx > i)
+                    stopIx = i;
+
+                wnRounds--;
+                if (!action.Equals(Atlas.Actions.Manipulation)) manipRounds--;
+                if (manipRounds > 0)
+                {
+                    cost -= 5;
+                    dur += 5;
+                }
+            }
+
+            return cost;
         }
         private static double MaxDurabilityGain(List<Action> durabilityActions, IEnumerable<Action> actions)
         {
@@ -453,22 +598,13 @@ namespace Libraries.Solvers
             }
             return newSets;
         }
-        private static bool Iterate(int[] arr, int ix, ref int leftCount)
+        private static List<Action> ZipLists(List<Action> left, List<Action> right, uint merger, int length)
         {
-            if (ix == -1) return false;
-
-            arr[ix] = (arr[ix] + 1) % 2;
-            leftCount += arr[ix] == 0 ? 1 : -1;
-
-            return arr[ix] == 1 || Iterate(arr, ix - 1, ref leftCount);
-        }
-        private static List<Action> ZipLists(List<Action> left, List<Action> right, int[] merger)
-        {
-            int l = 0, r = 0;
-            List<Action> actions = new List<Action>(merger.Length);
-            for (int i = 0; i < merger.Length; i++)
+            int l = left.Count, r = right.Count;
+            List<Action> actions = new(length);
+            for (int i = 0; i < length; i++)
             {
-                actions.Insert(i, merger[i] == 0 ? left[l++] : right[r++]);
+                actions.Insert(0, ((merger >> i) & 1) == 0 ? left[--l] : right[--r]);
             }
             return actions;
         }

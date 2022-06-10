@@ -609,11 +609,11 @@
                 Innovation,
                 GreatStrides
             };
-            public static readonly Action[] DurabilityActions = {
-                Manipulation,
-                MastersMend,
-                WasteNot,
-                WasteNot2
+            public static readonly KeyValuePair<Action, double>[] DurabilityActions = {
+                new(WasteNot2, (20D * 8) / WasteNot2.CPCost),
+                new(WasteNot, (20D * 4) / WasteNot.CPCost),
+                new(Manipulation, 40D / Manipulation.CPCost),
+                new(MastersMend, 30D / MastersMend.CPCost)
             };
 
             public static void UpgradeActionsByLevel(int level)

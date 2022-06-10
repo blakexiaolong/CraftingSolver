@@ -95,7 +95,7 @@
         {
             #region Wasted Action Checks
             if (progress >= Recipe.Difficulty) return false; // throw new WastedActionException("OverProgress");
-            if (durability <= 0) return false; // throw new WastedActionException("OutOfDurability");
+            if (useDurability && durability <= 0) return false; // throw new WastedActionException("OutOfDurability");
             if (cp - action.CPCost < 0) return false; // throw new WastedActionException("OutOfCp");
             if (step > 0 && (action.Equals(Atlas.Actions.Reflect) || action.Equals(Atlas.Actions.MuscleMemory) || action.Equals(Atlas.Actions.TrainedEye))) return false; // throw new WastedActionException("NonFirstRound");
             if (action.Equals(Atlas.Actions.TrainedEye) && (PureLevelDifference >= 10 || !Recipe.IsExpert)) return false;  // throw new WastedActionException("UntrainedEye");
@@ -121,43 +121,48 @@
             #endregion
 
             #region Durability
-            if (useDurability) 
+            double durabilityCost = action.DurabilityCost;
+                
+            #region Waste Not
+
+            bool wn = false;
+            if (countdowns.ContainsKey(Atlas.Actions.WasteNot))
             {
-                double durabilityCost = action.DurabilityCost;
-                
-                #region Waste Not
-
-                bool wn = false;
-                if (countdowns.ContainsKey(Atlas.Actions.WasteNot))
-                {
-                    wn = false;
-                    if (countdowns[Atlas.Actions.WasteNot] > 0) countdowns[Atlas.Actions.WasteNot] *= -1;
-                }
-                else if (countdowns.ContainsKey(Atlas.Actions.WasteNot2))
-                {
-                    wn = false;
-                    if (countdowns[Atlas.Actions.WasteNot2] > 0) countdowns[Atlas.Actions.WasteNot2] *= -1;
-                }
-
-                if (wn)
-                {
-                    durabilityCost *= 0.5;
-                }
-
-                #endregion
-
-                durability -= durabilityCost;
-
-                #region Durability Restoration
-
-                if (action.Equals(Atlas.Actions.MastersMend)) durability += 30;
-                if (countdowns.ContainsKey(Atlas.Actions.Manipulation) && durability > 0 &&
-                    action != Atlas.Actions.Manipulation) durability += 5;
-
-                #endregion
-                
-                durability = Math.Min(durability, Recipe.Durability);
+                wn = true;
+                if (action.DurabilityCost > 0 && countdowns[Atlas.Actions.WasteNot] > 0) countdowns[Atlas.Actions.WasteNot] *= -1;
             }
+            else if (countdowns.ContainsKey(Atlas.Actions.WasteNot2))
+            {
+                wn = true;
+                if (action.DurabilityCost > 0 && countdowns[Atlas.Actions.WasteNot2] > 0) countdowns[Atlas.Actions.WasteNot2] *= -1;
+            }
+
+            if (wn)
+            {
+                durabilityCost *= 0.5;
+            }
+
+            #endregion
+
+            durability -=  durabilityCost;
+
+            #region Durability Restoration
+
+            if (action.Equals(Atlas.Actions.MastersMend))
+            {
+                if (Math.Abs(durability - Recipe.Durability) < 0.9) return false;
+                durability += 30;
+            }
+            
+            if (countdowns.ContainsKey(Atlas.Actions.Manipulation) && durability > 0 && action != Atlas.Actions.Manipulation)
+            {
+                if (durability < Recipe.Durability && countdowns[Atlas.Actions.Manipulation] > 0) countdowns[Atlas.Actions.Manipulation] *= -1;
+                durability += 5;
+            }
+
+            #endregion
+
+            durability = Math.Min(durability, Recipe.Durability);
             #endregion
 
             #region Inner Quiet

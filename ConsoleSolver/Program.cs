@@ -116,7 +116,7 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, bluefeatherBarding);
+LightSimulator sim = new(newBuffed, classicalMilpreves);
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
@@ -130,8 +130,12 @@ var actions = new List<Action>
     Atlas.Actions.PreparatoryTouch, Atlas.Actions.PreparatoryTouch, Atlas.Actions.GreatStrides,
     Atlas.Actions.ByregotsBlessing, Atlas.Actions.CarefulSynthesis
 };
-var e = solver.GetDurabilityCost(actions, out int stopIx);
-solver.GreedySolveDurability(actions, (int)sim.Simulate(actions, useDurability: false)!.Value.CP, out var neat);
+List<Action> a = new List<Action>
+{
+    Atlas.Actions.Innovation, Atlas.Actions.PreparatoryTouch, Atlas.Actions.PreparatoryTouch,
+    Atlas.Actions.PreparatoryTouch, Atlas.Actions.Innovation, Atlas.Actions.PreparatoryTouch,
+    Atlas.Actions.PreparatoryTouch, Atlas.Actions.GreatStrides, Atlas.Actions.ByregotsBlessing
+};
 
 var solution = solver.Run(maxTasks);
 if (solution == null) return;

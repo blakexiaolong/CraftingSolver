@@ -28,12 +28,14 @@
             ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
                 if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
+            if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
         public LightState? Simulate(Action action, bool useDurability = true)
         {
             ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
+            if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
         public LightState? Simulate(IEnumerable<Action> actions, LightState startState, bool useDurability = true)
@@ -41,12 +43,14 @@
             ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
                 if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
+            if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
         public LightState? Simulate(Action action, LightState startState, bool useDurability = true)
         {
             ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
+            if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
 
@@ -187,7 +191,9 @@
 
             if (action.ActionType == ActionType.CountDown)
             {
-                if (countdowns.ContainsKey(action)) countdowns[action] = action.ActiveTurns;
+                if (countdowns.ContainsKey(action))
+                    if (countdowns[action] > 0) return false;
+                    else countdowns[action] = action.ActiveTurns;
                 else countdowns.Add(action, action.ActiveTurns);
             }
             #endregion

@@ -36,4 +36,4 @@ A successful craft looks like a chain of one or more actions, always ending in a
 
 ## Acknowledgements
 * Square Enix for developing Final Fantasy 14
-* The developers of [FFXIV Teamcraft](https://github.com/ffxiv-teamcraft] for their crafting simulator, which mine is heavily based on
+* The developers of [FFXIV Teamcraft](https://github.com/ffxiv-teamcraft) for their crafting simulator, which mine is heavily based on

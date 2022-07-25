@@ -116,7 +116,7 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, classicalMilpreves);
+LightSimulator sim = new(newBuffed, newNeoIshgardian);
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 

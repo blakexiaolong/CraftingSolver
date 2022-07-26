@@ -116,11 +116,11 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, newNeoIshgardian);
+LightSimulator sim = new(newBuffed, classicalMilpreves);
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
-var solver = new JaboaSolver(sim, Console.WriteLine);
+var solver = new JABOASolver2(sim, Console.WriteLine);
 var actions = new List<Action>
 {
     Atlas.Actions.MuscleMemory, //Atlas.Actions.Manipulation, Atlas.Actions.WasteNot2,

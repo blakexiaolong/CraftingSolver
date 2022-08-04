@@ -23,38 +23,38 @@
             BaseQualityIncrease = CalculateBaseQualityIncrease();
         }
 
-        public LightState? Simulate(IEnumerable<Action> actions, bool useDurability = true)
+        public LightState? Simulate(IEnumerable<int> actions, bool useDurability = true)
         {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
                 if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-        public LightState? Simulate(Action action, bool useDurability = true)
+        public LightState? Simulate(int action, bool useDurability = true)
         {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-        public LightState? Simulate(IEnumerable<Action> actions, LightState startState, bool useDurability = true)
+        public LightState? Simulate(IEnumerable<int> actions, LightState startState, bool useDurability = true)
         {
-            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
                 if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-        public LightState? Simulate(Action action, LightState startState, bool useDurability = true)
+        public LightState? Simulate(int action, LightState startState, bool useDurability = true)
         {
-            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
             if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
 
-        private static void ExtractState(LightState? state, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<Action, int> countdowns, double startQuality, double startCp, double startDurability)
+        private static void ExtractState(LightState? state, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, double startQuality, double startCp, double startDurability)
         {
             if (state == null)
             {
@@ -81,7 +81,7 @@
                 }
             }
         }
-        private static LightState SetState(double progress, double quality, double cp, double durability, int innerQuiet, int step, Dictionary<Action, int> countdowns)
+        private static LightState SetState(double progress, double quality, double cp, double durability, int innerQuiet, int step, Dictionary<int, int> countdowns)
         {
             return new LightState
             {
@@ -95,50 +95,112 @@
             };
         }
 
-        private bool Simulate(Action action, ref double progress, ref double quality, ref double cp, ref double durability, ref int innerQuiet, ref int step, Dictionary<Action, int> countdowns, bool useDurability)
+        private bool Simulate(int action, ref double progress, ref double quality, ref double cp, ref double durability, ref int innerQuiet, ref int step, Dictionary<int, int> countdowns, bool useDurability)
         {
+            Action a = Atlas.Actions.AllActions[action];
             #region Wasted Action Checks
             if (progress >= Recipe.Difficulty) return false; // throw new WastedActionException("OverProgress");
             if (useDurability && durability <= 0) return false; // throw new WastedActionException("OutOfDurability");
-            if (cp - action.CPCost < 0) return false; // throw new WastedActionException("OutOfCp");
-            if (step > 0 && (action.Equals(Atlas.Actions.Reflect) || action.Equals(Atlas.Actions.MuscleMemory) || action.Equals(Atlas.Actions.TrainedEye))) return false; // throw new WastedActionException("NonFirstRound");
-            if (action.Equals(Atlas.Actions.TrainedEye) && (PureLevelDifference >= 10 || !Recipe.IsExpert)) return false;  // throw new WastedActionException("UntrainedEye");
-            if (action.Equals(Atlas.Actions.ByregotsBlessing) && innerQuiet == 0) return false; // throw new WastedActionException("ByregotsWithoutIQ");
-            if (action.Equals(Atlas.Actions.TrainedFinesse) && innerQuiet < 10) return false; // throw new WastedActionException("UntrainedFinesse");
-            if ((action.Equals(Atlas.Actions.FocusedSynthesis) || action.Equals(Atlas.Actions.FocusedTouch)) && !countdowns.ContainsKey(Atlas.Actions.Observe)) return false; // throw new WastedActionException("Unfocused");
-            if ((action.Equals(Atlas.Actions.PrudentTouch) || action.Equals(Atlas.Actions.PrudentSynthesis)) && (countdowns.ContainsKey(Atlas.Actions.WasteNot) || countdowns.ContainsKey(Atlas.Actions.WasteNot2))) return false; //throw new WastedActionException("PrudentUnderWasteNot");
+            if (cp - a.CPCost < 0) return false; // throw new WastedActionException("OutOfCp");
+            if (step > 0 && action is (int)Atlas.Actions.ActionMap.Reflect or (int)Atlas.Actions.ActionMap.MuscleMemory or (int)Atlas.Actions.ActionMap.TrainedEye) return false; // throw new WastedActionException("NonFirstRound");
+            switch (action)
+            {
+                case (int)Atlas.Actions.ActionMap.TrainedEye when PureLevelDifference >= 10 || !Recipe.IsExpert: // throw new WastedActionException("ByregotsWithoutIQ");
+                case (int)Atlas.Actions.ActionMap.ByregotsBlessing when innerQuiet == 0: // throw new WastedActionException("UntrainedFinesse");
+                case (int)Atlas.Actions.ActionMap.TrainedFinesse when innerQuiet < 10: // throw new WastedActionException("Unfocused");
+                case (int)Atlas.Actions.ActionMap.FocusedSynthesis or (int)Atlas.Actions.ActionMap.FocusedTouch when !countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Observe): //throw new WastedActionException("PrudentUnderWasteNot");
+                case (int)Atlas.Actions.ActionMap.PrudentTouch or (int)Atlas.Actions.ActionMap.PrudentSynthesis when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot) || countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot2): // throw new WastedActionException("UntrainedEye");
+                    return false;
+            }
+
             #endregion
 
-            int cpCost = action.CPCost;
-            progress += Math.Floor(BaseProgressIncrease * action.ProgressIncreaseMultiplier * CalcProgressMultiplier(action, countdowns, durability));
-            quality += Math.Floor(action.Equals(Atlas.Actions.TrainedEye) ? Recipe.MaxQuality : BaseQualityIncrease * action.QualityIncreaseMultiplier * CalcQualityMultiplier(action, countdowns, innerQuiet));
+            #region Multipliers
+            double progressIncreaseMultiplier = 0;
+            if (a.ProgressIncreaseMultiplier > 0)
+            {
+
+                progressIncreaseMultiplier = 1;
+                if (a.ProgressIncreaseMultiplier > 0 && countdowns.ContainsKey((int)Atlas.Actions.ActionMap.MuscleMemory))
+                {
+                    progressIncreaseMultiplier += 1;
+                    countdowns.Remove((int)Atlas.Actions.ActionMap.MuscleMemory);
+                }
+
+                if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Veneration))
+                {
+                    progressIncreaseMultiplier += 0.5;
+                    if (countdowns[(int)Atlas.Actions.ActionMap.Veneration] > 0) countdowns[(int)Atlas.Actions.ActionMap.Veneration] *= -1;
+                }
+
+                if (action == (int)Atlas.Actions.ActionMap.Groundwork && (useDurability ? durability : Recipe.Durability) < Atlas.Actions.AllActions[(int)Atlas.Actions.ActionMap.Groundwork].DurabilityCost)
+                {
+                    progressIncreaseMultiplier *= 0.5;
+                }
+            }
+
+            double qualityIncreaseMultiplier = 0;
+            if (a.QualityIncreaseMultiplier > 0)
+            {
+
+                qualityIncreaseMultiplier = 1;
+                if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.GreatStrides))
+                {
+                    qualityIncreaseMultiplier += 1;
+                    countdowns.Remove((int)Atlas.Actions.ActionMap.GreatStrides);
+                }
+
+                if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Innovation))
+                {
+                    qualityIncreaseMultiplier += 0.5;
+                    if (countdowns[(int)Atlas.Actions.ActionMap.Innovation] > 0) countdowns[(int)Atlas.Actions.ActionMap.Innovation] *= -1;
+                }
+
+                if (action == (int)Atlas.Actions.ActionMap.ByregotsBlessing)
+                {
+                    if (innerQuiet > 0)
+                    {
+                        qualityIncreaseMultiplier *= Math.Min(3, 1 + innerQuiet * 0.2);
+                    }
+                    else
+                    {
+                        qualityIncreaseMultiplier = 0;
+                    }
+                }
+
+                qualityIncreaseMultiplier *= 1 + (0.1 * innerQuiet);
+            }
+            #endregion
+
+            int cpCost = a.CPCost;
+            progress += Math.Floor(BaseProgressIncrease * a.ProgressIncreaseMultiplier * progressIncreaseMultiplier);
+            quality += Math.Floor(action == (int)Atlas.Actions.ActionMap.TrainedEye ? Recipe.MaxQuality : BaseQualityIncrease * a.QualityIncreaseMultiplier * qualityIncreaseMultiplier);
 
             #region Combos
-            if (action.Equals(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.BasicTouch] == 2)
+            switch (action)
             {
-                cpCost = 18;
-            }
-            else if (action.Equals(Atlas.Actions.AdvancedTouch) && countdowns.ContainsKey(Atlas.Actions.StandardTouch) && countdowns.ContainsKey(Atlas.Actions.BasicTouch) && countdowns[Atlas.Actions.StandardTouch] == 1 && countdowns[Atlas.Actions.BasicTouch] == 1)
-            {
-                cpCost = 18;
+                case (int)Atlas.Actions.ActionMap.StandardTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 2:
+                case (int)Atlas.Actions.ActionMap.AdvancedTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.StandardTouch) && countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.StandardTouch] == 1 && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 1:
+                    cpCost = 18;
+                    break;
             }
             #endregion
 
             #region Durability
-            double durabilityCost = action.DurabilityCost;
+            double durabilityCost = a.DurabilityCost;
                 
             #region Waste Not
 
             bool wn = false;
-            if (countdowns.ContainsKey(Atlas.Actions.WasteNot))
+            if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot))
             {
                 wn = true;
-                if (action.DurabilityCost > 0 && countdowns[Atlas.Actions.WasteNot] > 0) countdowns[Atlas.Actions.WasteNot] *= -1;
+                if (a.DurabilityCost > 0 && countdowns[(int)Atlas.Actions.ActionMap.WasteNot] > 0) countdowns[(int)Atlas.Actions.ActionMap.WasteNot] *= -1;
             }
-            else if (countdowns.ContainsKey(Atlas.Actions.WasteNot2))
+            else if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot2))
             {
                 wn = true;
-                if (action.DurabilityCost > 0 && countdowns[Atlas.Actions.WasteNot2] > 0) countdowns[Atlas.Actions.WasteNot2] *= -1;
+                if (a.DurabilityCost > 0 && countdowns[(int)Atlas.Actions.ActionMap.WasteNot2] > 0) countdowns[(int)Atlas.Actions.ActionMap.WasteNot2] *= -1;
             }
 
             if (wn)
@@ -148,19 +210,19 @@
 
             #endregion
 
-            durability -=  durabilityCost;
+            durability -= durabilityCost;
 
             #region Durability Restoration
 
-            if (action.Equals(Atlas.Actions.MastersMend))
+            if (action == (int)Atlas.Actions.ActionMap.MastersMend)
             {
                 if (Math.Abs(durability - Recipe.Durability) < 0.9) return false;
                 durability += 30;
             }
             
-            if (countdowns.ContainsKey(Atlas.Actions.Manipulation) && durability > 0 && action != Atlas.Actions.Manipulation)
+            if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Manipulation) && durability > 0 && action != (int)Atlas.Actions.ActionMap.Manipulation)
             {
-                if (durability < Recipe.Durability && countdowns[Atlas.Actions.Manipulation] > 0) countdowns[Atlas.Actions.Manipulation] *= -1;
+                if (durability < Recipe.Durability && countdowns[(int)Atlas.Actions.ActionMap.Manipulation] > 0) countdowns[(int)Atlas.Actions.ActionMap.Manipulation] *= -1;
                 durability += 5;
             }
 
@@ -170,10 +232,23 @@
             #endregion
 
             #region Inner Quiet
-            if (action.Equals(Atlas.Actions.ByregotsBlessing)) innerQuiet = 0;
-            else if (action.Equals(Atlas.Actions.Reflect)) innerQuiet = 2;
-            else if (action.Equals(Atlas.Actions.PreparatoryTouch)) innerQuiet += 2;
-            else if (action.QualityIncreaseMultiplier > 0) innerQuiet += 1;
+            switch (action)
+            {
+                case (int)Atlas.Actions.ActionMap.ByregotsBlessing:
+                    innerQuiet = 0;
+                    break;
+                case (int)Atlas.Actions.ActionMap.Reflect:
+                    innerQuiet = 2;
+                    break;
+                case (int)Atlas.Actions.ActionMap.PreparatoryTouch:
+                    innerQuiet += 2;
+                    break;
+                default:
+                {
+                    if (a.QualityIncreaseMultiplier > 0) innerQuiet += 1;
+                    break;
+                }
+            }
             #endregion
 
             #region Countdowns
@@ -189,12 +264,12 @@
                 }
             }
 
-            if (action.ActionType == ActionType.CountDown)
+            if (a.ActionType == ActionType.CountDown)
             {
                 if (countdowns.ContainsKey(action))
                     if (countdowns[action] > 0) return false;
-                    else countdowns[action] = action.ActiveTurns;
-                else countdowns.Add(action, action.ActiveTurns);
+                    else countdowns[action] = a.ActiveTurns;
+                else countdowns.Add(action, a.ActiveTurns);
             }
             #endregion
 
@@ -203,61 +278,6 @@
             cp         = Math.Min(cp - cpCost, Crafter.CP);
 
             return true;
-        }
-        
-        private static double CalcProgressMultiplier(Action action, Dictionary<Action, int> countdowns, double durability)
-        {
-            if (action.ProgressIncreaseMultiplier == 0) return 0;
-
-            double progressIncreaseMultiplier = 1;
-            if (action.ProgressIncreaseMultiplier > 0 && countdowns.ContainsKey(Atlas.Actions.MuscleMemory))
-            {
-                progressIncreaseMultiplier += 1;
-                countdowns.Remove(Atlas.Actions.MuscleMemory);
-            }
-
-            if (countdowns.ContainsKey(Atlas.Actions.Veneration))
-            {
-                progressIncreaseMultiplier += 0.5;
-                if (countdowns[Atlas.Actions.Veneration] > 0) countdowns[Atlas.Actions.Veneration] *= -1;
-            }
-
-            if (action.Equals(Atlas.Actions.Groundwork) && durability < Atlas.Actions.Groundwork.DurabilityCost)
-            {
-                progressIncreaseMultiplier *= 0.5;
-            }
-
-            return progressIncreaseMultiplier;
-        }
-        private static double CalcQualityMultiplier(Action action, Dictionary<Action, int> countdowns, int innerQuiet)
-        {
-            if (action.QualityIncreaseMultiplier == 0) return 0;
-
-            double qualityIncreaseMultiplier = 1;
-            if (countdowns.ContainsKey(Atlas.Actions.GreatStrides))
-            {
-                qualityIncreaseMultiplier += 1;
-                countdowns.Remove(Atlas.Actions.GreatStrides);
-            }
-            if (countdowns.ContainsKey(Atlas.Actions.Innovation))
-            {
-                qualityIncreaseMultiplier += 0.5;
-                if (countdowns[Atlas.Actions.Innovation] > 0) countdowns[Atlas.Actions.Innovation] *= -1;
-            }
-            
-            if (action.Equals(Atlas.Actions.ByregotsBlessing))
-            {
-                if (innerQuiet > 0)
-                {
-                    qualityIncreaseMultiplier *= Math.Min(3, 1 + innerQuiet * 0.2);
-                }
-                else
-                {
-                    qualityIncreaseMultiplier = 0;
-                }
-            }
-            qualityIncreaseMultiplier *= 1 + (0.1 * innerQuiet);
-            return qualityIncreaseMultiplier;
         }
 
         private double CalculateBaseProgressIncrease()
@@ -317,7 +337,7 @@
         public double Quality { get; init; }
         public double Progress { get; init; }
         public int InnerQuiet { get; init; }
-        public Dictionary<Action, int> CountDowns { get; init; }
+        public Dictionary<int, int> CountDowns { get; init; }
         public bool Success(LightSimulator sim) => Progress >= sim.Recipe.Difficulty && CP >= 0;
         public StateViolations CheckViolations(LightSimulator sim)
         {

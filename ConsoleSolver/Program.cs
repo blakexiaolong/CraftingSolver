@@ -120,22 +120,7 @@ LightSimulator sim = new(newBuffed, classicalMilpreves);
 const int maxTasks = 20;
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
-var solver = new JABOASolver2(sim, Console.WriteLine);
-var actions = new List<Action>
-{
-    Atlas.Actions.MuscleMemory, //Atlas.Actions.Manipulation, Atlas.Actions.WasteNot2,
-    Atlas.Actions.Veneration, Atlas.Actions.Groundwork, Atlas.Actions.Innovation,
-    Atlas.Actions.CarefulSynthesis, Atlas.Actions.PreparatoryTouch, Atlas.Actions.PreparatoryTouch,
-    Atlas.Actions.PreparatoryTouch, Atlas.Actions.Innovation,
-    Atlas.Actions.PreparatoryTouch, Atlas.Actions.PreparatoryTouch, Atlas.Actions.GreatStrides,
-    Atlas.Actions.ByregotsBlessing, Atlas.Actions.CarefulSynthesis
-};
-List<Action> a = new List<Action>
-{
-    Atlas.Actions.Innovation, Atlas.Actions.PreparatoryTouch, Atlas.Actions.PreparatoryTouch,
-    Atlas.Actions.PreparatoryTouch, Atlas.Actions.Innovation, Atlas.Actions.PreparatoryTouch,
-    Atlas.Actions.PreparatoryTouch, Atlas.Actions.GreatStrides, Atlas.Actions.ByregotsBlessing
-};
+var solver = new JABOASolver(sim, Console.WriteLine);
 
 var solution = solver.Run(maxTasks);
 if (solution == null) return;

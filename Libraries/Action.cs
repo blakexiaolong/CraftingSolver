@@ -8,7 +8,7 @@
         Immediate
     };
 
-    public class Action : System.IEquatable<Action>
+    public class Action
     {
         public int ID { get; init; } // used only for comparison - faster than string comparison on the name
 
@@ -26,16 +26,5 @@
         public bool OnGood { get; init; }
         public bool OnExcellent { get; init; }
         public bool OnPoor { get; set; }
-
-        public static bool Equals(Action? x, Action? y)
-        {
-            if (x == default && y == default) return true;
-            else if (x == default || y == default) return false;
-            else return x.Equals(y);
-        }
-
-
-        public bool Equals(Action? other) => other != null && ID == other.ID;
-        public override string ToString() => $"{Name}";
     }
 }

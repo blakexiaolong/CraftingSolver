@@ -6,4 +6,12 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <Compile Remove="Effect.cs" />
+    <Compile Remove="ICondition.cs" />
+    <Compile Remove="Simulator.cs" />
+    <Compile Remove="SimulatorStep.cs" />
+    <Compile Remove="State.cs" />
+  </ItemGroup>
+
 </Project>

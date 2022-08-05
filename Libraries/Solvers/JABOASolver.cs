@@ -9,7 +9,7 @@ public class JABOASolver
 	private const double MinDurabilityCost = 98 / 160D;
 	private const int MaxProgressListCount = 15000;
 	private const int ProgressSetMaxLength = 7;
-	private const int QualitySetMaxLength = 5;
+	private const int QualitySetMaxLength = 14;
 	private const int DurabilityLossThreshold = 8;
 
 	private readonly LightSimulator _sim;
@@ -138,7 +138,7 @@ public class JABOASolver
 				for (int i = 0; i < threads.Length; i++)
 				{
 					int action = _qualityActions[i];
-					threads[i] = new Thread(() => state.Add(GenerateQualityTreeInner(node, action, prevScore, remainingDepth, cpLimit)));
+					threads[i] = new(() => state.Add(GenerateQualityTreeInner(node, action, prevScore, remainingDepth, cpLimit)));
 					threads[i].Start();
 				}
 				foreach (var thread in threads) thread.Join();
@@ -156,10 +156,11 @@ public class JABOASolver
 		}
 		return state;
 	}
+
 	private DfsState GenerateQualityTreeInner(ActionNode node, int action, double prevScore, int remainingDepth, int cpLimit)
 	{
 		DfsState dfsState = new DfsState();
-		LightState? state = _sim.Simulate(action, node.State, false);
+		var state = _sim.Simulate(action, node.State, false);
 		if (state == null) return dfsState;
 
 		double score = ScoreState(state, ignoreProgress: true);
@@ -168,24 +169,32 @@ public class JABOASolver
 		if (Atlas.Actions.AllActions[action].ActiveTurns <= 0 && score <= prevScore) return dfsState;
 
 		ActionNode newNode;
-		lock (node) { newNode = node.Add(action, state.Value); }
+		lock (node)
+		{
+			newNode = node.Add(action, state.Value);
+		}
 
 		bool doNextLevel = true;
 		if (_bestSolution == null || _bestQuality - 20 < score)
 		{
 			dfsState.SolutionCount++;
 			List<int> path = newNode.GetPath(state.Value.Step);
-			InlineMerger(path);
+			if (!InlineMerger(path)) doNextLevel = false;
 		}
 
 		dfsState.NodesGenerated++;
 		nodesIsh++;
-		dfsState.Add(GenerateQualityTreeThreading(newNode, score, remainingDepth - 1, cpLimit));
-		lock (node) { node.Remove(newNode); }
+		if (doNextLevel) dfsState.Add(GenerateQualityTreeThreading(newNode, score, remainingDepth - 1, cpLimit));
+		lock (node)
+		{
+			node.Remove(newNode);
+		}
 
-		if (remainingDepth == QualitySetMaxLength) _logger($"-> {Atlas.Actions.AllActions[action].Name} ({dfsState.NodesGenerated} generated)");
+		if (remainingDepth == QualitySetMaxLength)
+			_logger($"-> {Atlas.Actions.AllActions[action].Name} ({dfsState.NodesGenerated} generated)");
 		return dfsState;
 	}
+
 	#endregion
 
 	#region Merger
@@ -210,7 +219,7 @@ public class JABOASolver
 	private bool InlineMerger(List<int> qualityList)
 	{
 		//return true;
-		bool ret = false;
+		bool ret = true;
 		callCount++;
 		foreach (var progressList in _progressLists)
 		{
@@ -239,7 +248,6 @@ public class JABOASolver
 					notEnoughProgressCount++;
 					continue;
 				}
-
 				if (!TestSpacedProgress(progressList, progressMerger, progressMergeLength))
 				{
 					craftNotFinishedFirst++;
@@ -262,20 +270,16 @@ public class JABOASolver
 					subZeroScore++;
 					continue;
 				}
-
 				if (_bestSolution != null && progressScore - DurabilityLossThreshold <= _bestSolution.Value.Key)
 				{
 					belowBestScoreFirst++;
 					continue;
 				}
-
-				if (cpMax - ListToCpCost(preDurabilityActions, false) -
-				    MinDurabilityCpCost(preDurabilityActions, cpMax) < 0)
+				if (cpMax - ListToCpCost(preDurabilityActions, false) - MinDurabilityCpCost(preDurabilityActions, cpMax) < 0)
 				{
 					notEnoughCpSecond++;
 					break;
 				}
-
 				if (!MinMaxSolveDurability(preDurabilityActions, progressState.Value.CP, out var postDurabilityActions))
 				{
 					failedSolveDurability++;
@@ -301,7 +305,6 @@ public class JABOASolver
 
 					_bestSolution = new(postDurabilityScore, postDurabilityActions!);
 					_bestQuality = ScoreState(postDurabilityState, ignoreProgress: true);
-					ret = true;
 				}
 			} while ((progressMerger += 2) < maxProgressCombinations);
 		}

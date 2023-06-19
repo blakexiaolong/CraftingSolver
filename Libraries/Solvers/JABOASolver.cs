@@ -1,4 +1,6 @@
-﻿using System.Collections.Concurrent;
+﻿using System.Collections;
+using System.Collections.Concurrent;
+using System.Collections.Specialized;
 using System.Runtime;
 using static Libraries.Solver;
 namespace Libraries.Solvers;
@@ -9,7 +11,8 @@ public class JABOASolver
 	private const double MinDurabilityCost = 98 / 160D;
 	private const int MaxProgressListCount = 15000;
 	private const int ProgressSetMaxLength = 7;
-	private const int QualitySetMaxLength = 14;
+	private const int MaxQualityListCount = 10000000;
+	private const int QualitySetMaxLength = 12;
 	private const int DurabilityLossThreshold = 8;
 
 	private readonly LightSimulator _sim;
@@ -18,16 +21,17 @@ public class JABOASolver
 
 	private readonly int[] _progressActions, _qualityActions;
 	private readonly KeyValuePair<int, double>[] _durabilityActions;
+	private bool _merging;
 
 	private int _countdown = 4;
 	private readonly object _lockObject = new();
 
 	private readonly ConcurrentBag<KeyValuePair<double, List<int>>> _scoredProgressLists = new();
 	private List<List<int>> _progressLists = new();
-	private KeyValuePair<double, List<int>>? _bestSolution;
-	private double _bestQuality = 0;
+	private readonly ConcurrentBag<KeyValuePair<int, List<int>>> _scoredQualityLists = new();
+	private ConcurrentQueue<KeyValuePair<int, List<int>>> _qualityQueue = new();
 
-	private ulong nodesIsh = 0;
+	private KeyValuePair<double, List<int>>? _bestSolution;
 
 	public JABOASolver(LightSimulator sim, LoggingDelegate loggingDelegate)
 	{
@@ -36,12 +40,10 @@ public class JABOASolver
 		_startState = _sim.Simulate(new List<int>())!.Value;
 
 		_progressActions =
-			Atlas.Actions.ProgressActions.Where(x => _sim.Crafter.Actions.Contains(x))
-			.Concat(Atlas.Actions.ProgressBuffs.Where(y => _sim.Crafter.Actions.Contains(y))).ToArray();
+			Atlas.Actions.ProgressActions.Where(x => _sim.Crafter.Actions.Contains(x)).ToArray();
 
 		var q =
-			Atlas.Actions.QualityActions.Where(x => _sim.Crafter.Actions.Contains(x))
-			.Concat(Atlas.Actions.QualityBuffs.Where(y => _sim.Crafter.Actions.Contains(y))).ToList();
+			Atlas.Actions.QualityActions.Where(x => _sim.Crafter.Actions.Contains(x)).ToList();
 		if (sim.PureLevelDifference < 10 || sim.Recipe.IsExpert) q.Remove((int)Atlas.Actions.ActionMap.TrainedEye);
 		q.Remove((int)Atlas.Actions.ActionMap.DelicateSynthesis); // todo: put this back in
 		_qualityActions = q.ToArray();
@@ -56,6 +58,7 @@ public class JABOASolver
 		_logger($"\n[{DateTime.Now}] Generating Progress Combinations");
 		GenerateProgressTree(cp);
 		_progressLists = _scoredProgressLists.OrderBy(x => x.Key).Take(MaxProgressListCount).Select(x => x.Value).ToList();
+		_scoredProgressLists.Clear();
 		int cpCost = (int)ListToCpCost(_progressLists.First());
 		cp = _sim.Crafter.CP + (int)(_sim.Recipe.Durability * MaxDurabilityCost) - cpCost;
 		_logger($"\t{string.Join(",", _progressLists.First().Select(x => Atlas.Actions.AllActions[x].ShortName))}");
@@ -82,7 +85,7 @@ public class JABOASolver
 		DfsState dfsState = new DfsState();
 		if (remainingDepth <= 0) return dfsState;
 
-		LightState? state = _sim.Simulate(action, node.State, false);
+		LightState? state = _sim.Simulate(action, node.State!.Value, false);
 		if (state == null) return dfsState;
 
 		double score = ScoreState(state, ignoreProgress: false);
@@ -117,7 +120,7 @@ public class JABOASolver
 		{
 			GCSettings.LatencyMode = GCLatencyMode.SustainedLowLatency;
 			DfsState state = new();
-			state.Add(GenerateQualityTreeThreading(new(null, _startState, null!), 0, QualitySetMaxLength, cpLimit));
+			state.Add(GenerateQualityTreeThreading(new(), _startState, 0, QualitySetMaxLength, cpLimit));
 			_logger($"[{DateTime.Now}] Nodes Generated: {state.NodesGenerated} | Solutions Found: {state.SolutionCount}");
 		}
 		finally
@@ -125,12 +128,12 @@ public class JABOASolver
 			GCSettings.LatencyMode = oldMode;
 		}
 	}
-	private DfsState GenerateQualityTreeThreading(ActionNode node, double prevScore, int remainingDepth, int cpLimit)
+	private DfsState GenerateQualityTreeThreading(List<int> node, LightState state, double prevScore, int remainingDepth, int cpLimit)
 	{
-		DfsState state = new();
+		DfsState dfsState = new();
 		switch (remainingDepth)
 		{
-			case <= 0: return state;
+			case <= 0: return dfsState;
 			case > 4 when _countdown > 0:
 			{
 				lock (_lockObject) _countdown = Math.Max(_countdown - 1, 0);
@@ -138,7 +141,7 @@ public class JABOASolver
 				for (int i = 0; i < threads.Length; i++)
 				{
 					int action = _qualityActions[i];
-					threads[i] = new(() => state.Add(GenerateQualityTreeInner(node, action, prevScore, remainingDepth, cpLimit)));
+					threads[i] = new(() => dfsState.Add(GenerateQualityTreeInner(node, state, action, prevScore, remainingDepth, cpLimit)));
 					threads[i].Start();
 				}
 				foreach (var thread in threads) thread.Join();
@@ -149,18 +152,20 @@ public class JABOASolver
 			{
 				foreach (int action in _qualityActions)
 				{
-					state.Add(GenerateQualityTreeInner(node, action, prevScore, remainingDepth, cpLimit));
+					dfsState.Add(GenerateQualityTreeInner(node, state, action, prevScore, remainingDepth, cpLimit));
 				}
 				break;
 			}
 		}
-		return state;
+		return dfsState;
 	}
 
-	private DfsState GenerateQualityTreeInner(ActionNode node, int action, double prevScore, int remainingDepth, int cpLimit)
+	private DfsState GenerateQualityTreeInner(List<int> parentNode, LightState parentState, int action, double prevScore, int remainingDepth, int cpLimit)
 	{
 		DfsState dfsState = new DfsState();
-		var state = _sim.Simulate(action, node.State, false);
+		if (ListToCpCost(parentNode) > cpLimit) return dfsState;
+		
+		var state = _sim.Simulate(action, parentState, false);
 		if (state == null) return dfsState;
 
 		double score = ScoreState(state, ignoreProgress: true);
@@ -168,27 +173,48 @@ public class JABOASolver
 		if (_sim.Crafter.CP - state.Value.CP > cpLimit) return dfsState;
 		if (Atlas.Actions.AllActions[action].ActiveTurns <= 0 && score <= prevScore) return dfsState;
 
-		ActionNode newNode;
-		lock (node)
-		{
-			newNode = node.Add(action, state.Value);
-		}
+		List<int> newNode = new List<int>(parentNode);
+		newNode.Add(action);
+		dfsState.SolutionCount++;
 
-		bool doNextLevel = true;
-		if (_bestSolution == null || _bestQuality - 20 < score)
-		{
-			dfsState.SolutionCount++;
-			List<int> path = newNode.GetPath(state.Value.Step);
-			if (!InlineMerger(path)) doNextLevel = false;
-		}
+		InlineMerger(newNode);
+		
+		// _scoredQualityLists.Add(new((int)score, newNode));
+		// if (_scoredQualityLists.Count >= MaxQualityListCount)
+		// {
+		// 	IOrderedEnumerable<KeyValuePair<int, List<int>>> sorted;
+		// 	lock (_scoredQualityLists)
+		// 	{
+		// 		sorted = _scoredQualityLists.OrderByDescending(x => x.Key);
+		// 		foreach (var kvp in sorted) _qualityQueue.Enqueue(kvp);
+		// 		_scoredQualityLists.Clear();
+		// 		if (!_merging)
+		// 		{
+		// 			Console.Write(".");
+		// 			_merging = true;
+		// 		}
+		// 	}
+		// }
+		// if (_merging)
+		// {
+		// 	while (_qualityQueue.TryDequeue(out var qualityList))
+		// 	{
+		// 		if (_bestSolution.HasValue && qualityList.Key - DurabilityLossThreshold < _bestSolution.Value.Key - 100) break;
+		// 		InlineMerger(qualityList.Value);
+		// 	}
+		//
+		// 	lock (_scoredQualityLists)
+		// 	{
+		// 		if (_merging)
+		// 		{
+		// 			_merging = false;
+		// 			_qualityQueue.Clear();
+		// 		}
+		// 	}
+		// }
 
+		dfsState.Add(GenerateQualityTreeThreading(newNode, state.Value, score, remainingDepth - 1, cpLimit));
 		dfsState.NodesGenerated++;
-		nodesIsh++;
-		if (doNextLevel) dfsState.Add(GenerateQualityTreeThreading(newNode, score, remainingDepth - 1, cpLimit));
-		lock (node)
-		{
-			node.Remove(newNode);
-		}
 
 		if (remainingDepth == QualitySetMaxLength)
 			_logger($"-> {Atlas.Actions.AllActions[action].Name} ({dfsState.NodesGenerated} generated)");
@@ -199,9 +225,11 @@ public class JABOASolver
 
 	#region Merger
 	
+	#region Troubleshooting Variables
 	ulong callCount = 0;
 
 	ulong progressLoops = 0;
+	ulong notEnoughCpFirst = 0;
 	ulong bothFirstRound = 0;
 
 	ulong zipLoops = 0;
@@ -215,16 +243,24 @@ public class JABOASolver
 	ulong failedSolveDurability = 0;
 	ulong durabilitiesSolved = 0;
 	ulong belowBestScoreSecond = 0;
+	#endregion
 
 	private bool InlineMerger(List<int> qualityList)
 	{
 		//return true;
 		bool ret = true;
 		callCount++;
+		double qualityCp = ListToCpCost(qualityList);
 		foreach (var progressList in _progressLists)
 		{
 			progressLoops++;
 			double cpMax = _sim.Crafter.CP;
+			double progressCp = ListToCpCost(progressList);
+			if (progressCp + qualityCp >= cpMax + _sim.Recipe.Durability * MaxDurabilityCost)
+			{
+				notEnoughCpFirst++;
+				break;
+			}
 
 			uint progressMerger = 1;
 			int progressMergeLength = qualityList.Count + progressList.Count;
@@ -304,7 +340,6 @@ public class JABOASolver
 					}
 
 					_bestSolution = new(postDurabilityScore, postDurabilityActions!);
-					_bestQuality = ScoreState(postDurabilityState, ignoreProgress: true);
 				}
 			} while ((progressMerger += 2) < maxProgressCombinations);
 		}
@@ -352,7 +387,6 @@ public class JABOASolver
 
 		return false;
 	}
-
 	private bool MinMaxSolveDurability(List<int> actions, double cpMax, out List<int>? durabilityActions)
 	{
 		durabilityActions = null;
@@ -405,7 +439,6 @@ public class JABOASolver
 
 		return bestScore > 0;
 	}
-
 	private double MinDurabilityCpCost(List<int> actions, double cpMax)
 	{
 		double remainingCp = cpMax;
@@ -459,7 +492,6 @@ public class JABOASolver
 			return cpMax - remainingCp;
 		} while (true);
 	}
-
 	private static List<int> ZipLists(List<int> left, List<int> right, uint merger, int length)
 	{
 		int l = left.Count, r = right.Count;
@@ -478,21 +510,16 @@ public class JABOASolver
 	{
 		if (!state.HasValue) return -1;
 		bool success = state.Value.Success(_sim);
-		if (!success)
-		{
-			var violations = state.Value.CheckViolations(_sim);
-			if (!violations.DurabilityOk || !violations.CpOk) return -1;
-		}
+		if (!success && (state.Value.Durability < 0 || state.Value.CP < 0)) return -1;
 
-		double progress = ignoreProgress
-			? 0
+		double progress = ignoreProgress ? 0
 			: (state.Value.Progress > _sim.Recipe.Difficulty ? _sim.Recipe.Difficulty : state.Value.Progress) / _sim.Recipe.Difficulty; // max 100
 		double maxQuality = _sim.Recipe.MaxQuality * 1.1;
 		double quality = (state.Value.Quality > maxQuality ? maxQuality : state.Value.Quality) / _sim.Recipe.MaxQuality; // max 110
 
 		double cp = state.Value.CP / _sim.Crafter.CP;
 		double steps = (100 - state.Value.Step) / 100D;
-		double extraCredit = (cp + steps) * 10 + (success ? 20 : 0); // max 40
+		double extraCredit = 0;//(cp + steps) * 10 + (success ? 20 : 0); // max 40
 
 		return (progress + quality) * 100 + extraCredit; // max 250
 	}

@@ -80,6 +80,32 @@ Recipe
         QualityDivider = 115,
         ProgressModifier = 0.8,
         QualityModifier = 0.7
+    },
+    rinascitaSword = new()
+    {
+        Level = 90,
+        RLevel = 610,
+        Difficulty = 5060,
+        StartQuality = 0,
+        MaxQuality = 12628,
+        Durability = 70,
+        ProgressDivider = 130,
+        QualityDivider = 115,
+        ProgressModifier = 0.8,
+        QualityModifier = 0.7
+    },
+    diadochosSword = new()
+    {
+        Level = 90,
+        RLevel = 640,
+        Difficulty = 6600,
+        StartQuality = 0,
+        MaxQuality = 14040,
+        Durability = 70,
+        ProgressDivider = 130,
+        QualityDivider = 115,
+        ProgressModifier = 0.8,
+        QualityModifier = 0.7
     };
 
 Crafter
@@ -101,29 +127,27 @@ Crafter
     },
     newUnbuffed = new()
     {
-        Craftsmanship = 3286,
-        Control = 3396,
-        CP = 565,
+        Craftsmanship = 4132,
+        Control = 3890,
+        CP = 687,
         Level = 90,
         Actions = Atlas.Actions.DependableActions
     },
     newBuffed = new()
     {
-        Craftsmanship = 3324,
-        Control = 3462,
-        CP = 675,
+        Craftsmanship = 4132,
+        Control = 3980,
+        CP = 794,
         Level = 90,
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, classicalMilpreves);
-const int maxTasks = 20;
+LightSimulator sim = new(newBuffed, diadochosSword);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
-var solver = new JABOASolver(sim, Console.WriteLine);
+var solver = new SawStepSolver(sim, Console.WriteLine);
+var solution = await solver.Run();
 
-var solution = solver.Run(maxTasks);
-if (solution == null) return;
 Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));
 Console.WriteLine("Press Enter to exit");
 Console.ReadLine();

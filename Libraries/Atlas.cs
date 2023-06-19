@@ -1,4 +1,7 @@
-﻿namespace Libraries
+﻿using System.Collections;
+using System.Collections.Specialized;
+
+namespace Libraries
 {
     public static class Atlas
     {
@@ -6,7 +9,14 @@
         {
             public enum ActionMap
             {
-                Observe,
+                Groundwork,
+                PreparatoryTouch,
+                Veneration,
+                Innovation,
+                GreatStrides,
+                TrainedEye,
+                Reflect,
+                MuscleMemory,
                 BasicSynth,
                 CarefulSynthesis,
                 BasicTouch,
@@ -14,27 +24,20 @@
                 AdvancedTouch,
                 ByregotsBlessing,
                 MastersMend,
-                TricksOfTheTrade,
-                InnerQuiet,
                 Manipulation,
                 WasteNot,
                 WasteNot2,
-                Veneration,
-                Innovation,
-                GreatStrides,
                 PreciseTouch,
-                MuscleMemory,
                 PrudentTouch,
                 FocusedSynthesis,
                 FocusedTouch,
-                Reflect,
-                PreparatoryTouch,
-                Groundwork,
                 DelicateSynthesis,
-                TrainedEye,
                 TrainedFinesse,
                 PrudentSynthesis,
-                DummyAction
+                TricksOfTheTrade,
+                Observe,
+                DummyAction,
+                InnerQuiet
             }
 
             public static readonly Dictionary<int, Action> AllActions = new()
@@ -71,7 +74,7 @@
                         QualityIncreaseMultiplier = 0.0,
                         ProgressIncreaseMultiplier = 0.0,
                         ActionType = ActionType.CountDown,
-                        ActiveTurns = 1,
+                        ActiveTurns = -1,
                         Class = "All",
                         Level = 13,
                         OnGood = false,
@@ -131,7 +134,7 @@
                         QualityIncreaseMultiplier = 1.0,
                         ProgressIncreaseMultiplier = 0.0,
                         ActionType = ActionType.CountDown,
-                        ActiveTurns = -2,
+                        ActiveTurns = -1,
                         Class = "All",
                         Level = 5,
                         OnGood = false,
@@ -620,7 +623,21 @@
                     }
                 }
             };
-            public static readonly int[] DependableActions = {
+            public static readonly int[] DependableActions = { // 24
+                (int)ActionMap.MuscleMemory,
+                (int)ActionMap.Reflect,
+                (int)ActionMap.TrainedEye,
+                
+                (int)ActionMap.Manipulation,
+                (int)ActionMap.MastersMend,
+                
+                (int)ActionMap.Veneration,
+                (int)ActionMap.Innovation,
+                (int)ActionMap.GreatStrides,
+                (int)ActionMap.Observe,
+                (int)ActionMap.WasteNot,
+                (int)ActionMap.WasteNot2,
+                
                 (int)ActionMap.CarefulSynthesis,
                 (int)ActionMap.DelicateSynthesis,
                 (int)ActionMap.Groundwork,
@@ -635,45 +652,33 @@
                 (int)ActionMap.ByregotsBlessing,
                 (int)ActionMap.PrudentTouch,
                 (int)ActionMap.TrainedFinesse,
-
-                (int)ActionMap.Manipulation,
-                (int)ActionMap.MastersMend,
-
-                (int)ActionMap.Veneration,
-                (int)ActionMap.Innovation,
-                (int)ActionMap.GreatStrides,
-                (int)ActionMap.Observe,
-                (int)ActionMap.WasteNot,
-                (int)ActionMap.WasteNot2,
-
-                (int)ActionMap.MuscleMemory,
-                (int)ActionMap.Reflect,
-                (int)ActionMap.TrainedEye
             };
             public static readonly int[] FirstRoundActions = {
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.TrainedEye,
                 (int)ActionMap.Reflect
             };
-            public static readonly int[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
-            public static readonly int[] QualityActions = DependableActions.Where(x => AllActions[x].QualityIncreaseMultiplier > 0).Concat(new[] { (int)ActionMap.TrainedEye }).ToArray();
-            public static readonly int[] Buffs = {
-                (int)ActionMap.Observe,
-                (int)ActionMap.Manipulation,
-                (int)ActionMap.WasteNot,
-                (int)ActionMap.WasteNot2,
-                (int)ActionMap.Veneration,
-                (int)ActionMap.Innovation,
-                (int)ActionMap.GreatStrides
-            };
-            public static readonly int[] ProgressBuffs = {
+            private static readonly int[] ProgressBuffs = {
                 (int)ActionMap.Veneration,
                 // FinalAppraisal // TODO: This
             };
-            public static readonly int[] QualityBuffs = {
+            private static readonly int[] QualityBuffs = {
                 (int)ActionMap.Innovation,
                 (int)ActionMap.GreatStrides
             };
+            public static readonly int[] Buffs =
+            {
+                (int)ActionMap.Manipulation,
+                (int)ActionMap.WasteNot,
+                (int)ActionMap.WasteNot2,
+                (int)ActionMap.Observe,
+                (int)ActionMap.Innovation,
+                (int)ActionMap.GreatStrides,
+                (int)ActionMap.Veneration,
+                //(int)ActionMap.FinalAppraisal //TODO: this
+            };
+            public static readonly int[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
+            public static readonly int[] QualityActions = DependableActions.Where(x => AllActions[x].QualityIncreaseMultiplier > 0).Concat(new[] { (int)ActionMap.TrainedEye }).ToArray();
             public static readonly KeyValuePair<int, double>[] DurabilityActions = {
                 new((int)ActionMap.WasteNot2, (20D * 8) / AllActions[(int)ActionMap.WasteNot2].CPCost),
                 new((int)ActionMap.WasteNot, (20D * 4) / AllActions[(int)ActionMap.WasteNot].CPCost),

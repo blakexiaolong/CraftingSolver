@@ -1,4 +1,7 @@
-﻿namespace Libraries
+﻿using System.Collections;
+using System.Numerics;
+
+namespace Libraries
 {
     public class LightSimulator
     {
@@ -105,9 +108,9 @@
             if (step > 0 && action is (int)Atlas.Actions.ActionMap.Reflect or (int)Atlas.Actions.ActionMap.MuscleMemory or (int)Atlas.Actions.ActionMap.TrainedEye) return false; // throw new WastedActionException("NonFirstRound");
             switch (action)
             {
-                case (int)Atlas.Actions.ActionMap.TrainedEye when PureLevelDifference >= 10 || !Recipe.IsExpert: // throw new WastedActionException("ByregotsWithoutIQ");
-                case (int)Atlas.Actions.ActionMap.ByregotsBlessing when innerQuiet == 0: // throw new WastedActionException("UntrainedFinesse");
-                case (int)Atlas.Actions.ActionMap.TrainedFinesse when innerQuiet < 10: // throw new WastedActionException("Unfocused");
+                case (int)Atlas.Actions.ActionMap.TrainedEye when PureLevelDifference < 10 || Recipe.IsExpert:
+                case (int)Atlas.Actions.ActionMap.ByregotsBlessing when innerQuiet == 0:
+                case (int)Atlas.Actions.ActionMap.TrainedFinesse when innerQuiet < 10:
                 case (int)Atlas.Actions.ActionMap.FocusedSynthesis or (int)Atlas.Actions.ActionMap.FocusedTouch when !countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Observe): //throw new WastedActionException("PrudentUnderWasteNot");
                 case (int)Atlas.Actions.ActionMap.PrudentTouch or (int)Atlas.Actions.ActionMap.PrudentSynthesis when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot) || countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot2): // throw new WastedActionException("UntrainedEye");
                     return false;
@@ -179,8 +182,8 @@
             #region Combos
             switch (action)
             {
-                case (int)Atlas.Actions.ActionMap.StandardTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 2:
-                case (int)Atlas.Actions.ActionMap.AdvancedTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.StandardTouch) && countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.StandardTouch] == 1 && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 1:
+                case (int)Atlas.Actions.ActionMap.StandardTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 1:
+                case (int)Atlas.Actions.ActionMap.AdvancedTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.StandardTouch) && countdowns[(int)Atlas.Actions.ActionMap.StandardTouch] == 1:
                     cpCost = 18;
                     break;
             }
@@ -264,12 +267,17 @@
                 }
             }
 
+            int turns = a.ActiveTurns;
+            if (action == (int)Atlas.Actions.ActionMap.BasicTouch)
+            {
+                turns = -1;
+            }
             if (a.ActionType == ActionType.CountDown)
             {
                 if (countdowns.ContainsKey(action))
                     if (countdowns[action] > 0) return false;
-                    else countdowns[action] = a.ActiveTurns;
-                else countdowns.Add(action, a.ActiveTurns);
+                    else countdowns[action] = turns;
+                else countdowns.Add(action, turns);
             }
             #endregion
 
@@ -339,14 +347,79 @@
         public int InnerQuiet { get; init; }
         public Dictionary<int, int> CountDowns { get; init; }
         public bool Success(LightSimulator sim) => Progress >= sim.Recipe.Difficulty && CP >= 0;
-        public StateViolations CheckViolations(LightSimulator sim)
+
+        public ulong ToULong(out int ix) // (max) 56 bits used
         {
-            return new StateViolations
+            ix = 0;
+            ulong b = 0;
+            
+            ix += Encode(ref b, (int)CP, ix);
+            ix += Encode(ref b, (int)Durability / 5, ix);
+            ix += Encode(ref b, (int)Quality, ix);
+            ix += Encode(ref b, (int)Progress, ix);
+
+            return b;
+        }
+        public uint EffectsToUInt() // 22 bits used
+        {
+            uint b = 0;
+            foreach (var countdown in CountDowns)
             {
-                ProgressOk = Progress >= sim.Recipe.Difficulty,
-                CpOk = CP >= 0,
-                DurabilityOk = Durability >= 0
-            };
+                switch (countdown.Key)
+                {
+                    case (int)Atlas.Actions.ActionMap.Observe:
+                        b |= 1 << 21;
+                        break;
+                    case (int)Atlas.Actions.ActionMap.BasicTouch:
+                        b |= 1 << 20;
+                        break;
+                    case (int)Atlas.Actions.ActionMap.StandardTouch:
+                        b |= 1 << 19;
+                        break;
+                    case (int)Atlas.Actions.ActionMap.GreatStrides:
+                        b |= 1 << 18;
+                        break;
+                    case (int)Atlas.Actions.ActionMap.Manipulation:
+                        b |= EncodeEffect(countdown.Value, 14, 4);
+                        break;
+                    case (int)Atlas.Actions.ActionMap.WasteNot:
+                        b |= EncodeEffect(countdown.Value, 10, 4);
+                        break;
+                    case (int)Atlas.Actions.ActionMap.WasteNot2:
+                        b |= EncodeEffect(countdown.Value, 10, 4);
+                        break;
+                    case (int)Atlas.Actions.ActionMap.Veneration:
+                        b |= EncodeEffect(countdown.Value, 7, 3);
+                        break;
+                    case (int)Atlas.Actions.ActionMap.Innovation:
+                        b |= EncodeEffect(countdown.Value, 4, 3);
+                        break;
+                    case (int)Atlas.Actions.ActionMap.MuscleMemory:
+                        b |= EncodeEffect(countdown.Value, 0, 4);
+                        break;
+                }
+            }
+            return b;
+        }
+
+        private int Encode(ref ulong b, int value, int shift)
+        {
+            uint aValue = (uint)Math.Abs(value);
+            int size = 32 - BitOperations.LeadingZeroCount(aValue);
+            if (value < 0)
+            {
+                aValue |= (uint)1 << size++;
+            }
+            b |= (((ulong)size << size) | aValue) << shift;
+            return size + 4;
+        }
+
+        private uint EncodeEffect(int value, int shift, int size) => (uint)(Math.Abs(value) | (value < 0 ? 1 << (size - 5) : 0)) << shift;
+
+        public BigInteger ToBigInt()
+        {
+            ulong state = ToULong(out int stateBits);
+            return new BigInteger(EffectsToUInt()) << stateBits | state;
         }
     }
 }

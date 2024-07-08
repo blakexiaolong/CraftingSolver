@@ -26,6 +26,19 @@ namespace Libraries
             BaseQualityIncrease = CalculateBaseQualityIncrease();
         }
 
+        public (int, LightState?) SimulateToFailure(IEnumerable<int> actions, bool useDurability = true)
+        {
+            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            int i = 0;
+            foreach (var action in actions)
+            {
+                if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability))
+                    return (i, Simulate(actions.Take(i), useDurability)); // TODO: This is a bad solution
+                i++;
+            }
+            if (!useDurability) durability = Recipe.Durability;
+            return (i, SetState(progress, quality, cp, durability, innerQuiet, step, countdowns));
+        }
         public LightState? Simulate(IEnumerable<int> actions, bool useDurability = true)
         {
             ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
@@ -102,17 +115,16 @@ namespace Libraries
         {
             Action a = Atlas.Actions.AllActions[action];
             #region Wasted Action Checks
-            if (progress >= Recipe.Difficulty) return false; // throw new WastedActionException("OverProgress");
-            if (useDurability && durability <= 0) return false; // throw new WastedActionException("OutOfDurability");
-            if (cp - a.CPCost < 0) return false; // throw new WastedActionException("OutOfCp");
-            if (step > 0 && action is (int)Atlas.Actions.ActionMap.Reflect or (int)Atlas.Actions.ActionMap.MuscleMemory or (int)Atlas.Actions.ActionMap.TrainedEye) return false; // throw new WastedActionException("NonFirstRound");
+            if (progress >= Recipe.Difficulty) return false;
+            if (useDurability && durability <= 0) return false;
+            if (cp - a.CPCost < 0) return false;
+            if (step > 0 && action is (int)Atlas.Actions.ActionMap.Reflect or (int)Atlas.Actions.ActionMap.MuscleMemory or (int)Atlas.Actions.ActionMap.TrainedEye) return false;
             switch (action)
             {
                 case (int)Atlas.Actions.ActionMap.TrainedEye when PureLevelDifference < 10 || Recipe.IsExpert:
                 case (int)Atlas.Actions.ActionMap.ByregotsBlessing when innerQuiet == 0:
                 case (int)Atlas.Actions.ActionMap.TrainedFinesse when innerQuiet < 10:
-                case (int)Atlas.Actions.ActionMap.FocusedSynthesis or (int)Atlas.Actions.ActionMap.FocusedTouch when !countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Observe): //throw new WastedActionException("PrudentUnderWasteNot");
-                case (int)Atlas.Actions.ActionMap.PrudentTouch or (int)Atlas.Actions.ActionMap.PrudentSynthesis when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot) || countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot2): // throw new WastedActionException("UntrainedEye");
+                case (int)Atlas.Actions.ActionMap.PrudentTouch or (int)Atlas.Actions.ActionMap.PrudentSynthesis when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot) || countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot2):
                     return false;
             }
 
@@ -184,6 +196,7 @@ namespace Libraries
             {
                 case (int)Atlas.Actions.ActionMap.StandardTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 1:
                 case (int)Atlas.Actions.ActionMap.AdvancedTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.StandardTouch) && countdowns[(int)Atlas.Actions.ActionMap.StandardTouch] == 1:
+                case (int)Atlas.Actions.ActionMap.AdvancedTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.Observe) && countdowns[(int)Atlas.Actions.ActionMap.Observe] == 1:
                     cpCost = 18;
                     break;
             }
@@ -191,9 +204,13 @@ namespace Libraries
 
             #region Durability
             double durabilityCost = a.DurabilityCost;
-                
-            #region Waste Not
+            if (durabilityCost > 0 && countdowns.ContainsKey((int)Atlas.Actions.ActionMap.TrainedPerfection) && countdowns[(int)Atlas.Actions.ActionMap.TrainedPerfection] > 0)
+            {
+                durabilityCost = 0;
+                countdowns[(int)Atlas.Actions.ActionMap.TrainedPerfection] *= -1;
+            }
 
+            #region Waste Not
             bool wn = false;
             if (countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot))
             {
@@ -210,13 +227,11 @@ namespace Libraries
             {
                 durabilityCost *= 0.5;
             }
-
             #endregion
 
             durability -= durabilityCost;
 
             #region Durability Restoration
-
             if (action == (int)Atlas.Actions.ActionMap.MastersMend)
             {
                 if (Math.Abs(durability - Recipe.Durability) < 0.9) return false;
@@ -229,6 +244,11 @@ namespace Libraries
                 durability += 5;
             }
 
+            if (action == (int)Atlas.Actions.ActionMap.ImmaculateMend)
+            {
+                if (Recipe.Durability - durability <= 30) return false; // just use Masters Mend
+                durability += Recipe.Durability;
+            }
             #endregion
 
             durability = Math.Min(durability, Recipe.Durability);
@@ -244,6 +264,9 @@ namespace Libraries
                     innerQuiet = 2;
                     break;
                 case (int)Atlas.Actions.ActionMap.PreparatoryTouch:
+                    innerQuiet += 2;
+                    break;
+                case (int)Atlas.Actions.ActionMap.RefinedTouch when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.BasicTouch) && countdowns[(int)Atlas.Actions.ActionMap.BasicTouch] == 1:
                     innerQuiet += 2;
                     break;
                 default:
@@ -276,6 +299,7 @@ namespace Libraries
             {
                 if (countdowns.ContainsKey(action))
                     if (countdowns[action] > 0) return false;
+                    else if (action == (int)Atlas.Actions.ActionMap.TrainedPerfection) return false;
                     else countdowns[action] = turns;
                 else countdowns.Add(action, turns);
             }

@@ -9,20 +9,21 @@ using static Solver;
 public class SawStepSolver
 {
     private const int
-        MaxThreads = 1,
+        MaxThreads = 20,
         MaxDepth = 26,
+        PresolveDepth = 5,
         StepForwardDepth = 4,
         StepBackDepth = StepForwardDepth - 1,
         StepSize = 100;
 
     private double _bestScore;
     private List<Action> _bestSolution;
-    private long _evaluated, _failures, _forwardSet, _backSet;
+    private long _evaluated, _failures, _forwardSet;
 
     private readonly LightSimulator _sim;
     private readonly LoggingDelegate _logger;
     private readonly int[] _actions;
-    private readonly int[][] _presolve = new[] { new int[1] };
+    private readonly Dictionary<int, Dictionary<int[], int>>[] _presolve;
 
     private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
@@ -36,41 +37,50 @@ public class SawStepSolver
         _sim = sim;
         _logger = loggingDelegate;
         _actions = sim.Crafter.Actions.OrderBy(x => x).ToArray();
-        _bestSolution = new();
+        _bestSolution = new List<Action>();
 
         BigInteger maxProgressCount = BigInteger.Pow(_actions.Length, MaxDepth);
         BigInteger solverCount = BigInteger.Pow(_actions.Length, StepForwardDepth + 1);
-        _logger($"[{DateTime.Now}] Game space is {maxProgressCount:N0} nodes, solver space is {solverCount:N0} nodes");
+        double presolverCount = Math.Pow(_sim.Crafter.Actions.Length, PresolveDepth);
+        _logger($"[{DateTime.Now}] Game space is {maxProgressCount:N0} nodes, solver space is {solverCount:N0} nodes, presolver space is {presolverCount:N0} nodes");
 
-        _presolve = Presolve();
-        _logger($"{_presolve.Length:N0} expansions found (eliminated {Math.Pow(_sim.Crafter.Actions.Length, StepForwardDepth) - _presolve.Length:N0} possible expansions)");
-    }
-
-    private int[][] Presolve()
-    {
-        List<int[]> allowedPaths = new();
-        int[] path = new int[StepForwardDepth];
-        for (int i = 0; i < path.Length; i++) path[i] = _sim.Crafter.Actions[0];
-
-        if (_sim.Simulate(path, useDurability: false).HasValue)
+        _presolve = new Dictionary<int, Dictionary<int[], int>>[PresolveDepth + 1];
+        _presolve[PresolveDepth] = Presolve();
+        for (int i = PresolveDepth - 1; i > 0; i--)
         {
-            allowedPaths.Add(path.ToArray());
+            _presolve[i] = _presolve[i + 1].ToDictionary(
+                x => x.Key,
+                x => x.Value
+                    .ToDictionary(y => y.Key.Take(i).ToArray(), y => y.Value)
+                    .DistinctBy(y => string.Join(" ", y.Key))
+                    .ToDictionary(y => y.Key, y => y.Value));
         }
 
-        bool cont;
+        double expansionsFound = _presolve[PresolveDepth].Sum(x => x.Value.Count);
+        _logger($"{expansionsFound:N0} expansions found (eliminated {presolverCount - expansionsFound:N0} possible expansions)");
+    }
+
+    private Dictionary<int, Dictionary<int[], int>> Presolve()
+    {
+        Dictionary<int, Dictionary<int[], int>> allowedPaths = new();
+        foreach (int t in _sim.Crafter.Actions) allowedPaths.Add(t, new Dictionary<int[], int>());
+
+        int[] path = new int[PresolveDepth];
+        for (int i = 0; i < path.Length; i++) path[i] = _sim.Crafter.Actions[0];
+
         do
         {
-            cont = PresolveIterator(ref path);
-            if (_sim.Simulate(path, useDurability: false).HasValue)
-            {
-                allowedPaths.Add(path.ToArray());
-            }
-        } while (cont);
+            if (AuditPresolve(path)) allowedPaths[path[0]].Add(path.ToArray(), 0);
+        } while (PresolveIterator(ref path));
 
-        allowedPaths.RemoveAll(x => x.Any(y => Atlas.Actions.FirstRoundActions.Contains(y)));
-        return allowedPaths.ToArray();
+        foreach (var key in allowedPaths.Keys.Where(k => !allowedPaths[k].Any()))
+        {
+            allowedPaths.Remove(key); // remove keys that didn't make it into the presolver
+        }
+
+        return allowedPaths;
     }
-    private bool PresolveIterator(ref int[] path, int ix = StepForwardDepth - 1)
+    private bool PresolveIterator(ref int[] path, int ix = PresolveDepth - 1)
     {
         if (ix == -1)
         {
@@ -94,6 +104,71 @@ public class SawStepSolver
             return false;
         }
     }
+    private bool AuditPresolve(int[] path)
+    {
+        //var z = path.Select(x => Atlas.Actions.AllActions[x].ShortName).ToList();
+        
+        for (int i = 0; i < path.Length; i++)
+        {
+            if (i < path.Length - 1 && Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i + 1]) return false;
+            if (i > 0 && path[i] == (int)Atlas.Actions.ActionMap.BasicTouch && (path[i - 1] == (int)Atlas.Actions.ActionMap.StandardTouch || path[i - 1] == (int)Atlas.Actions.ActionMap.BasicTouch)) return false;
+            if (i > 0 && path[i] == (int)Atlas.Actions.ActionMap.StandardTouch && path[i - 1] == (int)Atlas.Actions.ActionMap.StandardTouch) return false;
+            if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return false;
+        }
+
+        if (FindAction((int)Atlas.Actions.ActionMap.ByregotsBlessing, path).Count > 1) return false;
+
+        List<int> indexes = FindAction((int)Atlas.Actions.ActionMap.WasteNot, path).Concat(FindAction((int)Atlas.Actions.ActionMap.WasteNot2, path)).ToList();
+        if (indexes.Any(x => indexes.Any(y => x - y == 1 || x - y == 2))) return false;
+        List<int> indexes2 = FindAction((int)Atlas.Actions.ActionMap.PrudentSynthesis, path).Concat(FindAction((int)Atlas.Actions.ActionMap.PrudentTouch, path)).ToList();
+        foreach (int ix in indexes) if (indexes2.Any(x => x > ix && x - ix < Atlas.Actions.AllActions[path[ix]].ActiveTurns)) return false;
+
+        indexes = FindAction((int)Atlas.Actions.ActionMap.Manipulation, path).ToList();
+        if (indexes.Any(x => indexes.Any(y => x - y > 0 && x - y < 6))) return false;
+
+        indexes = FindAction((int)Atlas.Actions.ActionMap.Veneration, path).ToList();
+        for (int i = 0; i < indexes.Count; i++)
+        {
+            int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
+            if (path.Length > indexes[i] + duration && path.Skip(indexes[i] + 1).Take(duration).All(x => !Atlas.Actions.ProgressActions.Contains(x))) return false;
+        }
+        
+        indexes = FindAction((int)Atlas.Actions.ActionMap.Innovation, path).ToList();
+        for (int i = 0; i < indexes.Count; i++)
+        {
+            int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
+            if (path.Length > indexes[i] + duration && path.Skip(indexes[i] + 1).Take(duration).All(x => !Atlas.Actions.QualityActions.Contains(x))) return false;
+        }
+        
+        int durability = 5, wn = 0, manip = 0;
+        foreach (var ac in path)
+        {
+            Action action = Atlas.Actions.AllActions[ac];
+            int cost = action.DurabilityCost;
+            if (wn > 0 && cost > 0) cost = cost / 2;
+            if (durability == _sim.Recipe.Durability && (ac == (int)Atlas.Actions.ActionMap.MastersMend || ac == (int)Atlas.Actions.ActionMap.ImmaculateMend)) return false;
+            if (ac == (int)Atlas.Actions.ActionMap.WasteNot || ac == (int)Atlas.Actions.ActionMap.WasteNot2) wn = Math.Max(wn, action.ActiveTurns);
+            if (ac == (int)Atlas.Actions.ActionMap.Manipulation) manip = Math.Max(manip, action.ActiveTurns);
+            if (ac == (int)Atlas.Actions.ActionMap.MastersMend) durability += 30;
+            if (ac == (int)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
+            durability = durability - cost;
+            if (manip > 0) durability += 5;
+            durability = Math.Min(durability, _sim.Recipe.Durability);
+            wn--;
+            manip--;
+        }
+        
+        return true;
+    }
+    private List<int> FindAction(int action, int[] path)
+    {
+        List<int> indexes = new();
+        for (int i = 0; i < path.Length; i++)
+        {
+            if (path[i] == action) indexes.Add(i);
+        }
+        return indexes;
+    }
 
     public async Task<List<Action>> Run()
     {
@@ -105,6 +180,8 @@ public class SawStepSolver
             await DoNextStep(step++);
         } while (_stepResults.Any() && _stepResults.First().Value.Count < MaxDepth);
 
+        //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].ShortName)))).ToList();
+        
         return _bestSolution;
     }
 
@@ -116,7 +193,6 @@ public class SawStepSolver
         _evaluated = 0;
         _failures = 0;
         _forwardSet = 0;
-        _backSet = 0;
 
         List<Thread> extraThreads = new();
         for (int i = 0; i < prevStep.Count; i++)
@@ -130,7 +206,7 @@ public class SawStepSolver
         foreach (Thread t in extraThreads) await Task.Run(() => t.Join());
         _countdown.Signal();
         await Task.Run(() => _countdown.Wait());
-        _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {stepCount+1}, Length {prevStep.First().Count + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures = {_forwardSet:N0} ({_backSet:N0})");
+        _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {stepCount + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures ({_failures / (double)_evaluated:P}) || forward set: {_forwardSet:N0}");
     }
 
     private Thread SolverThread(int threadId, LightState? lastState, List<int> path) => new(() =>
@@ -139,11 +215,7 @@ public class SawStepSolver
 
         var forward = StepForward(lastState, path);
         _forwardSet += forward.Count;
-        //var x = forward.SelectMany(x => x.Value.Select(y => Atlas.Actions.AllActions[y].ShortName).ToList()).ToList();
-        var backward = StepBackward(forward);
-        _backSet += backward.Count;
-        foreach (var item in backward) _stepResults.Add(item);
-        //_logger($"{Atlas.Actions.AllActions[path.FirstOrDefault()].Name}: {forward.Count:N0} -> {backward.Count:N0}");
+        foreach (var item in forward) _stepResults.Add(item);
         
         if (threadId < _threads.Length) _threads[threadId] = null;
         _countdown.Signal();
@@ -153,47 +225,47 @@ public class SawStepSolver
     {
         List<KeyValuePair<double, List<int>>> ret = new();
         
-        List<List<int>> expansions = Expand(path.ToList(), StepForwardDepth).ToList();
-        for (int i = 0; i < expansions.Count; i++)
+        foreach (var batch in _presolve[PresolveDepth])
         {
-            KeyValuePair<double, LightState?> score = Score(lastState, expansions[i]);
-            if (score.Key >= 0)
+            double localBestScore = -1;
+            List<int> localBestPath = new();
+            foreach (var b in batch.Value)
             {
-                if (score.Key > _bestScore && score.Value!.Value.Success(_sim))
+                List<int> expansion = path.Concat(b.Key).ToList();
+                KeyValuePair<double, LightState?> score = Score(lastState, expansion);
+                if (score.Key >= 0)
                 {
-                    lock (_locker)
+                    batch.Value[b.Key]++;
+                    if (score.Key > localBestScore)
                     {
-                        if (score.Key > _bestScore)
+                        localBestScore = score.Key;
+                        localBestPath = expansion;
+                        
+                        if (score.Key > _bestScore && score.Value!.Value.Success(_sim))
                         {
-                            _bestScore = score.Key;
-                            _bestSolution = expansions[i].Select(x => Atlas.Actions.AllActions[x]).ToList();
-                            var s = _sim.Simulate(expansions[i]);
-                            _logger($"\t{_bestScore:P} ({s?.Quality ?? 0:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
-                        }
-                        else
-                        {
-                            ret.Add(new(score.Key, expansions[i]));   
+                            lock (_locker)
+                            {
+                                if (score.Key > _bestScore)
+                                {
+                                    _bestScore = score.Key;
+                                    _bestSolution = expansion.Select(x => Atlas.Actions.AllActions[x]).ToList();
+                                    var s = _sim.Simulate(expansion);
+                                    _logger($"\t{_bestScore:P} ({s?.Quality ?? 0:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
+                                }
+                            }
                         }
                     }
                 }
                 else
                 {
-                    ret.Add(new(score.Key, expansions[i]));   
+                    //var q = expansion.Select(y => string.Join(", ", Atlas.Actions.AllActions[y].ShortName)).ToList();
                 }
             }
+
+            if (localBestScore >= 0) ret.Add(new(localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList()));
         }
 
         return ret;
-    }
-    private IEnumerable<List<int>> Expand(List<int> path, int amount)
-    {
-        if (amount == 0) return new List<List<int>> { path };
-        return _actions.SelectMany(action =>
-        {
-            List<int> expansion = path.ToList();
-            expansion.Add(action);
-            return Expand(expansion, amount - 1);
-        });
     }
     private KeyValuePair<double, LightState?> Score(LightState? lastState, List<int> expansion)
     {
@@ -214,32 +286,21 @@ public class SawStepSolver
 
         if (state.HasValue)
         {
-            double progress = Math.Min(_sim.Recipe.Difficulty, state.Value.Progress) / _sim.Recipe.Difficulty; // max 100
+            double progress = Math.Min(_sim.Recipe.Difficulty, state.Value.Progress) / _sim.Recipe.Difficulty;
             
             double maxQuality = _sim.Recipe.MaxQuality * 1.1;
-            double quality = Math.Min(maxQuality, state.Value.Quality) / _sim.Recipe.MaxQuality; // max 110
+            double quality = Math.Min(maxQuality, state.Value.Quality) / maxQuality;
+            if (expansion[0] == (int)Atlas.Actions.ActionMap.TrainedEye) quality = 1; 
 
             double cp = state.Value.CP / _sim.Crafter.CP;
             double steps = 1 - state.Value.Step / 100D;
-            double extraCredit = cp + steps; // max 2
 
-            return new((progress * 100 + quality * 100 + extraCredit) / 212, state); // max 100
+            return new((progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250, state); // max 100
         }
         else
         {
             _failures++;
             return new(-1, state);
         }
-    }
-    
-    private List<KeyValuePair<double, List<int>>> StepBackward(List<KeyValuePair<double, List<int>>> step)
-    {
-        return step
-            .Select(x => new KeyValuePair<double, List<int>>(x.Key, x.Value.Take(x.Value.Count - StepBackDepth).ToList()))
-            .GroupBy(x => string.Join("", x.Value.Select(y => y.ToString("D2"))), (_, pairs) =>
-            {
-                var p = pairs.MaxBy(y => y.Key);
-                return new KeyValuePair<double, List<int>>(p.Key, p.Value);
-            }).ToList();
     }
 }

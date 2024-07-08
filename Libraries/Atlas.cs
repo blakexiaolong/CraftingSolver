@@ -1,7 +1,4 @@
-﻿using System.Collections;
-using System.Collections.Specialized;
-
-namespace Libraries
+﻿namespace Libraries
 {
     public static class Atlas
     {
@@ -9,6 +6,7 @@ namespace Libraries
         {
             public enum ActionMap
             {
+                TrainedPerfection,
                 Groundwork,
                 PreparatoryTouch,
                 Veneration,
@@ -22,15 +20,15 @@ namespace Libraries
                 BasicTouch,
                 StandardTouch,
                 AdvancedTouch,
+                RefinedTouch,
                 ByregotsBlessing,
+                ImmaculateMend,
                 MastersMend,
                 Manipulation,
                 WasteNot,
                 WasteNot2,
                 PreciseTouch,
                 PrudentTouch,
-                FocusedSynthesis,
-                FocusedTouch,
                 DelicateSynthesis,
                 TrainedFinesse,
                 PrudentSynthesis,
@@ -423,46 +421,6 @@ namespace Libraries
                     }
                 },
                 {
-                    (int)ActionMap.FocusedSynthesis, new()
-                    {
-                        ID = (int)ActionMap.FocusedSynthesis,
-                        ShortName = "focusedSynthesis",
-                        Name = "Focused Synthesis",
-                        DurabilityCost = 10,
-                        CPCost = 5,
-                        SuccessProbability = 0.5,
-                        QualityIncreaseMultiplier = 0.0,
-                        ProgressIncreaseMultiplier = 2.0,
-                        ActionType = ActionType.Immediate,
-                        ActiveTurns = 1,
-                        Class = "All",
-                        Level = 67,
-                        OnGood = false,
-                        OnExcellent = false,
-                        OnPoor = false
-                    }
-                },
-                {
-                    (int)ActionMap.FocusedTouch, new()
-                    {
-                        ID = (int)ActionMap.FocusedTouch,
-                        ShortName = "focusedTouch",
-                        Name = "Focused Touch",
-                        DurabilityCost = 10,
-                        CPCost = 18,
-                        SuccessProbability = 0.5,
-                        QualityIncreaseMultiplier = 1.5,
-                        ProgressIncreaseMultiplier = 0.0,
-                        ActionType = ActionType.Immediate,
-                        ActiveTurns = 1,
-                        Class = "All",
-                        Level = 68,
-                        OnGood = false,
-                        OnExcellent = false,
-                        OnPoor = false
-                    }
-                },
-                {
                     (int)ActionMap.Reflect, new()
                     {
                         ID = (int)ActionMap.Reflect,
@@ -471,7 +429,7 @@ namespace Libraries
                         DurabilityCost = 10,
                         CPCost = 6,
                         SuccessProbability = 1.0,
-                        QualityIncreaseMultiplier = 1.0,
+                        QualityIncreaseMultiplier = 3.0,
                         ProgressIncreaseMultiplier = 0.0,
                         ActionType = ActionType.Immediate,
                         ActiveTurns = 1,
@@ -616,20 +574,82 @@ namespace Libraries
                         ActionType = ActionType.Immediate,
                         ActiveTurns = 1,
                         Class = "All",
-                        Level = 84,
+                        Level = 68,
+                        OnGood = false,
+                        OnExcellent = false,
+                        OnPoor = false
+                    }
+                },
+                {
+                    (int)ActionMap.TrainedPerfection, new ()
+                    {
+                        ID = (int)ActionMap.TrainedPerfection,
+                        ShortName = "trainedPerfection",
+                        Name = "Trained Perfection",
+                        DurabilityCost = 0,
+                        CPCost = 0,
+                        SuccessProbability = 100,
+                        QualityIncreaseMultiplier = 0,
+                        ProgressIncreaseMultiplier = 0,
+                        ActionType = ActionType.CountDown,
+                        ActiveTurns = int.MaxValue,
+                        Class = "All",
+                        Level = 100,
+                        OnGood = false,
+                        OnExcellent = false,
+                        OnPoor = false
+                    }
+                },
+                {
+                    (int)ActionMap.ImmaculateMend, new ()
+                    {
+                        ID = (int)ActionMap.ImmaculateMend,
+                        ShortName = "immaculateMend",
+                        Name = "Immaculate Mend",
+                        DurabilityCost = 0,
+                        CPCost = 112,
+                        SuccessProbability = 100,
+                        QualityIncreaseMultiplier = 0,
+                        ProgressIncreaseMultiplier = 0,
+                        ActionType = ActionType.Immediate,
+                        ActiveTurns = 1,
+                        Class = "All",
+                        Level = 98,
+                        OnGood = false,
+                        OnExcellent = false,
+                        OnPoor = false
+                    }
+                },
+                {
+                    (int)ActionMap.RefinedTouch, new ()
+                    {
+                        ID = (int)ActionMap.RefinedTouch,
+                        ShortName = "refinedTouch",
+                        Name = "Refined Touch",
+                        DurabilityCost = 10,
+                        CPCost = 24,
+                        SuccessProbability = 100,
+                        QualityIncreaseMultiplier = 1.0,
+                        ProgressIncreaseMultiplier = 0,
+                        ActionType = ActionType.Immediate,
+                        ActiveTurns = 1,
+                        Class = "All",
+                        Level = 92,
                         OnGood = false,
                         OnExcellent = false,
                         OnPoor = false
                     }
                 }
             };
-            public static readonly int[] DependableActions = { // 24
+            public static readonly int[] DependableActions = { // 25
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.Reflect,
                 (int)ActionMap.TrainedEye,
+                (int)ActionMap.TrainedPerfection,
                 
                 (int)ActionMap.Manipulation,
                 (int)ActionMap.MastersMend,
+                (int)ActionMap.ImmaculateMend,
                 
                 (int)ActionMap.Veneration,
                 (int)ActionMap.Innovation,
@@ -641,10 +661,8 @@ namespace Libraries
                 (int)ActionMap.CarefulSynthesis,
                 (int)ActionMap.DelicateSynthesis,
                 (int)ActionMap.Groundwork,
-                (int)ActionMap.FocusedSynthesis,
                 (int)ActionMap.BasicSynth,
 
-                (int)ActionMap.FocusedTouch,
                 (int)ActionMap.PreparatoryTouch,
                 (int)ActionMap.BasicTouch,
                 (int)ActionMap.StandardTouch,
@@ -652,6 +670,7 @@ namespace Libraries
                 (int)ActionMap.ByregotsBlessing,
                 (int)ActionMap.PrudentTouch,
                 (int)ActionMap.TrainedFinesse,
+                (int)ActionMap.RefinedTouch,
             };
             public static readonly int[] FirstRoundActions = {
                 (int)ActionMap.MuscleMemory,
@@ -675,6 +694,7 @@ namespace Libraries
                 (int)ActionMap.Innovation,
                 (int)ActionMap.GreatStrides,
                 (int)ActionMap.Veneration,
+                (int)ActionMap.TrainedPerfection,
                 //(int)ActionMap.FinalAppraisal //TODO: this
             };
             public static readonly int[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
@@ -683,7 +703,8 @@ namespace Libraries
                 new((int)ActionMap.WasteNot2, (20D * 8) / AllActions[(int)ActionMap.WasteNot2].CPCost),
                 new((int)ActionMap.WasteNot, (20D * 4) / AllActions[(int)ActionMap.WasteNot].CPCost),
                 new((int)ActionMap.Manipulation, 40D / AllActions[(int)ActionMap.Manipulation].CPCost),
-                new((int)ActionMap.MastersMend, 30D / AllActions[(int)ActionMap.MastersMend].CPCost)
+                new((int)ActionMap.MastersMend, 30D / AllActions[(int)ActionMap.MastersMend].CPCost),
+                new((int)ActionMap.ImmaculateMend, 35D / AllActions[(int)ActionMap.ImmaculateMend].CPCost),
             };
 
             public static void UpgradeActionsByLevel(int level)
@@ -696,10 +717,13 @@ namespace Libraries
                 {
                     AllActions[(int)ActionMap.CarefulSynthesis].ProgressIncreaseMultiplier = 1.8;
                 }
-
                 if (level >= 86)
                 {
                     AllActions[(int)ActionMap.Groundwork].ProgressIncreaseMultiplier = 3.6;
+                }
+                if (level >= 94)
+                {
+                    AllActions[(int)ActionMap.DelicateSynthesis].ProgressIncreaseMultiplier = 1.5;
                 }
             }
         }
@@ -744,7 +768,17 @@ namespace Libraries
             { 87, 552 },
             { 88, 555 },
             { 89, 558 },
-            { 90, 560 }
+            { 90, 560 },
+            { 91, 650 },
+            { 92, 653 },
+            { 93, 656 },
+            { 94, 660 },
+            { 95, 665 },
+            { 96, 670 },
+            { 97, 675 },
+            { 98, 680 },
+            { 99, 685 },
+            { 100, 690 },
         };
     }
 }

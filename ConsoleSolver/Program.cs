@@ -1,6 +1,5 @@
 ﻿using Libraries;
 using Libraries.Solvers;
-using Action = Libraries.Action;
 
 Recipe
     newNeoIshgardian = new()
@@ -106,6 +105,34 @@ Recipe
         QualityDivider = 115,
         ProgressModifier = 0.8,
         QualityModifier = 0.7
+    },
+    g8Alkahest = new()
+    {
+        Level = 90,
+        RLevel = 640,
+        Difficulty = 4488,
+        StartQuality = 0,
+        MaxQuality = 9090,
+        Durability = 35,
+        ProgressDivider = 130,
+        QualityDivider = 115,
+        ProgressModifier = 0.8,
+        QualityModifier = 0.7,
+        IsExpert = true
+    },
+    orangeScrip = new()
+    {
+        Level = 100,
+        RLevel = 690,
+        Difficulty = 6600,
+        StartQuality = 0,
+        MaxQuality = 12000,
+        Durability = 80,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
     };
 
 Crafter
@@ -136,17 +163,24 @@ Crafter
     newBuffed = new()
     {
         Craftsmanship = 4132,
-        Control = 3980,
-        CP = 794,
+        Control = 3974,
+        CP = 687,
         Level = 90,
+        Actions = Atlas.Actions.DependableActions
+    },
+    dawntrailTemp = new()
+    {
+        Craftsmanship = 4747,
+        Control = 4698,
+        CP = 599,
+        Level = 100,
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(newBuffed, diadochosSword);
+LightSimulator sim = new(dawntrailTemp, orangeScrip);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
-var solver = new SawStepSolver(sim, Console.WriteLine);
-var solution = await solver.Run();
+var solution = await new SawStepSolver(sim, Console.WriteLine).Run();
 
 Console.WriteLine(string.Join(",", solution.Select(x => x.ShortName)));
 Console.WriteLine("Press Enter to exit");

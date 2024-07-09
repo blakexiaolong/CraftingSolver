@@ -39,6 +39,19 @@ namespace Libraries
             if (!useDurability) durability = Recipe.Durability;
             return (i, SetState(progress, quality, cp, durability, innerQuiet, step, countdowns));
         }
+        public (int, LightState?) SimulateToFailure(IEnumerable<int> actions, LightState startState, bool useDurability = true)
+        {
+            ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
+            int i = 0;
+            foreach (var action in actions)
+            {
+                if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability))
+                    return (i, Simulate(actions.Take(i), startState, useDurability)); // TODO: This is a bad solution
+                i++;
+            }
+            if (!useDurability) durability = Recipe.Durability;
+            return (i, SetState(progress, quality, cp, durability, innerQuiet, step, countdowns));
+        }
         public LightState? Simulate(IEnumerable<int> actions, bool useDurability = true)
         {
             ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);

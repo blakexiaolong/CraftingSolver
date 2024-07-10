@@ -9,11 +9,11 @@ using static Solver;
 public class SawStepSolver
 {
     private const int
-        MaxThreads = 20,
+        MaxThreads = 14,
         MaxDepth = 26,
-        StepForwardDepth = 4,
+        StepForwardDepth = 6,
         StepBackDepth = StepForwardDepth - 1,
-        StepSize = 100;
+        StepSize = 20;
 
     private double _bestScore;
     private List<Action> _bestSolution;
@@ -22,14 +22,13 @@ public class SawStepSolver
     private readonly LightSimulator _sim;
     private readonly LoggingDelegate _logger;
     private readonly int[] _actions;
-    private readonly Dictionary<int, Dictionary<int[], int>>[] _presolve;
+    private readonly Dictionary<int, Dictionary<int[], int>> _presolve;
 
     private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
     private readonly object _locker = new();
     private readonly Stopwatch _sw = new ();
-
-    private readonly ConcurrentBag<KeyValuePair<double, List<int>>> _stepResults = new();
+    private readonly ConcurrentBag<(double, List<int>, int[])> _stepResults = new();
 
     public SawStepSolver(LightSimulator sim, LoggingDelegate loggingDelegate)
     {
@@ -45,26 +44,15 @@ public class SawStepSolver
 
         // TODO: Maybe yank this out into a database somehow?
         Console.Write("Pre-solving");
-        _presolve = new Dictionary<int, Dictionary<int[], int>>[StepForwardDepth + 1];
-        _presolve[StepForwardDepth] = Presolve();
-        for (int i = StepForwardDepth - 1; i > 0; i--)
-        {
-            _presolve[i] = _presolve[i + 1].ToDictionary(
-                x => x.Key,
-                x => x.Value
-                    .ToDictionary(y => y.Key.Take(i).ToArray(), y => y.Value)
-                    .DistinctBy(y => string.Join(" ", y.Key))
-                    .ToDictionary(y => y.Key, y => y.Value));
-        }
+        _presolve = Presolve();
 
-        double expansionsFound = _presolve[StepForwardDepth].Sum(x => x.Value.Count);
-        _logger($"\n[{DateTime.Now}] {expansionsFound:N0} expansions found (eliminated {presolverCount - expansionsFound:N0} possible expansions)");
+        double expansionsFound = _presolve.Sum(x => x.Value.Count);
+        _logger($"\n[{DateTime.Now}] {expansionsFound:N0} expansions found (eliminated {presolverCount - expansionsFound:N0} [{1 - expansionsFound / presolverCount:P0}] possible expansions)");
     }
 
     private Dictionary<int, Dictionary<int[], int>> Presolve()
     {
-        Dictionary<int, Dictionary<int[], int>> allowedPaths = new();
-        foreach (int t in _sim.Crafter.Actions) allowedPaths.Add(t, new Dictionary<int[], int>());
+        Dictionary<int, Dictionary<int[], int>> allowedPaths = _sim.Crafter.Actions.ToDictionary(t => t, t => new Dictionary<int[], int>());
 
         int[] path = new int[StepForwardDepth];
         for (int i = 0; i < path.Length; i++) path[i] = _sim.Crafter.Actions[0];
@@ -180,43 +168,41 @@ public class SawStepSolver
         int step = 0;
         do
         {
-            await DoNextStep(step++);
-        } while (_stepResults.Any() && _stepResults.First().Value.Count < MaxDepth);
+            var prevStep =
+                (step == 0
+                    ? _actions.Select(x => (-1D, new List<int> { x }, Array.Empty<int>())).Where(x => _sim.Simulate(x.Item2) is not null)
+                    : _stepResults.OrderByDescending(x => x.Item1).Take(StepSize))
+                .ToList();
+            _stepResults.Clear();
+            _countdown = new(1);
+            _evaluated = 0;
+            _failures = 0;
+            _forwardSet = 0;
+
+            List<Thread> extraThreads = new();
+            for (int i = 0; i < prevStep.Count; i++)
+            {
+                Thread t = SolverThread(i, _sim.Simulate(prevStep[i].Item2), prevStep[i]);
+                if (i < _threads.Length) _threads[i] = t;
+                else extraThreads.Add(t);
+                t.Start();
+            }
+        
+            foreach (Thread t in extraThreads) await Task.Run(() => t.Join());
+            _countdown.Signal();
+            await Task.Run(() => _countdown.Wait());
+            _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures ({_failures / (double)_evaluated:P0}) || forward set: {_forwardSet:N0}");
+        } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth);
 
         //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].ShortName)))).ToList();
-        
         return _bestSolution;
     }
 
-    private async Task DoNextStep(int stepCount)
-    {
-        var prevStep = (stepCount == 0 ? _actions.Select(x => new List<int> { x }) : _stepResults.OrderByDescending(x => x.Key).Take(StepSize).Select(x => x.Value)).ToList();
-        _stepResults.Clear();
-        _countdown = new(1);
-        _evaluated = 0;
-        _failures = 0;
-        _forwardSet = 0;
-
-        List<Thread> extraThreads = new();
-        for (int i = 0; i < prevStep.Count; i++)
-        {
-            Thread t = SolverThread(i, _sim.Simulate(prevStep[i]), prevStep[i]);
-            if (i < _threads.Length) _threads[i] = t;
-            else extraThreads.Add(t);
-            t.Start();
-        }
-        
-        foreach (Thread t in extraThreads) await Task.Run(() => t.Join());
-        _countdown.Signal();
-        await Task.Run(() => _countdown.Wait());
-        _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {stepCount + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures ({_failures / (double)_evaluated:P}) || forward set: {_forwardSet:N0}");
-    }
-
-    private Thread SolverThread(int threadId, LightState? lastState, List<int> path) => new(() =>
+    private Thread SolverThread(int threadId, LightState? lastState, (double, List<int>, int[]) prevStep) => new(() =>
     {
         _countdown.AddCount();
 
-        var forward = StepForward(lastState, path);
+        var forward = StepForward(lastState, prevStep);
         _forwardSet += forward.Count;
         foreach (var item in forward) _stepResults.Add(item);
         
@@ -224,72 +210,107 @@ public class SawStepSolver
         _countdown.Signal();
     });
 
-    private List<KeyValuePair<double, List<int>>> StepForward(LightState? lastState, List<int> path)
+    private List<(double, List<int>, int[])> StepForward(LightState? lastState, (double, List<int>, int[]) prevStep)
     {
-        List<KeyValuePair<double, List<int>>> ret = new();
-        
-        foreach (var batch in _presolve[StepForwardDepth])
+        List<(double, List<int>, int[])> ret = new();
+        if (prevStep.Item3.Any())
         {
-            double localBestScore = -1;
+            double localBestScore = double.MinValue;
+            List<int> prevExpansion = prevStep.Item3.Skip(1).ToList();
+            List<int> prevPath = prevStep.Item2.Concat(prevExpansion).ToList();
+            LightState? prevState = _sim.Simulate(prevExpansion, lastState!.Value);
             List<int> localBestPath = new();
-            foreach (var b in batch.Value)
+            int[] localBestExpansion = Array.Empty<int>();
+            foreach (var action in _actions)
             {
-                KeyValuePair<double, LightState?> score = Score(lastState, b.Key);
-                if (score.Key >= 0)
+                LightState? s = _sim.Simulate(action, prevState.Value);
+                if (s is null)
                 {
-                    batch.Value[b.Key]++;
-                    if (score.Key > localBestScore)
+                    _failures++;
+                    continue;
+                }
+
+                KeyValuePair<double, LightState?> score = Score(s, action);
+                List<int> path = prevPath.Concat(new[] { action }).ToList();
+                if (score.Key >= _bestScore || score.Value!.Value.Success(_sim))
+                {
+                    lock (_locker)
                     {
-                        localBestScore = score.Key;
-                        localBestPath = path.Concat(b.Key).ToList();
-                        
-                        if (score.Key > _bestScore && score.Value!.Value.Success(_sim))
-                        {
-                            lock (_locker)
-                            {
-                                if (score.Key > _bestScore)
-                                {
-                                    _bestScore = score.Key;
-                                    _bestSolution = localBestPath.Select(x => Atlas.Actions.AllActions[x]).ToList();
-                                    var s = _sim.SimulateToFailure(localBestPath);
-                                    _logger($"\t{_bestScore:P} ({s.Item2?.Quality ?? 0:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
-                                }
-                            }
-                        }
+                        if (score.Key <= _bestScore) continue;
+
+                        _bestScore = score.Key;
+                        _bestSolution = path.Select(x => Atlas.Actions.AllActions[x]).ToList();
+                        var t = _sim.SimulateToFailure(path);
+                        _logger($"\t{_bestScore:P} ({t.Item2?.Quality ?? 0:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
                     }
                 }
-                else
+
+                if (score.Key > localBestScore)
                 {
-                    //var q = expansion.Select(y => string.Join(", ", Atlas.Actions.AllActions[y].ShortName)).ToList();
+                    localBestScore = score.Key;
+                    localBestPath = path.ToList();
+                    localBestExpansion = prevExpansion.Concat(new[] { action }).ToArray();
                 }
             }
 
-            if (localBestScore >= 0) ret.Add(new(localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList()));
+            if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList(), localBestExpansion));
+        }
+
+        foreach (var batch in _presolve)
+        {
+            double localBestScore = double.MinValue;
+            List<int> localBestPath = new();
+            int[] localBestExpansion = Array.Empty<int>();
+            foreach (var b in batch.Value)
+            {
+                (int, LightState?) state = lastState.HasValue ? _sim.SimulateToFailure(b.Key, lastState.Value) : _sim.SimulateToFailure(b.Key);
+                KeyValuePair<double, LightState?> score = Score(state.Item2, b.Key[0]);
+                if (state.Item1 < StepForwardDepth) _failures++;
+                if (score.Key < 0) continue; // this may not happen actually
+                
+                batch.Value[b.Key]++;
+                if (score.Key <= localBestScore) continue;
+                
+                List<int> path = prevStep.Item2.Concat(b.Key).ToList();
+                if (score.Key > _bestScore && score.Value!.Value.Success(_sim))
+                {
+                    lock (_locker)
+                    {
+                        if (score.Key <= _bestScore) continue;
+
+                        _bestScore = score.Key;
+                        _bestSolution = path.Select(x => Atlas.Actions.AllActions[x]).ToList();
+                        var s = _sim.SimulateToFailure(path);
+                        _logger($"\t{_bestScore:P} ({s.Item2?.Quality ?? 0:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
+                    }
+                }
+                if (state.Item1 == StepForwardDepth && score.Key > localBestScore)
+                {
+                    localBestScore = score.Key;
+                    localBestPath = path.ToList();
+                    localBestExpansion = b.Key;
+                }
+            }
+            if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList(), localBestExpansion));
         }
 
         return ret;
     }
-    private KeyValuePair<double, LightState?> Score(LightState? lastState, int[] expansion)
+
+    private KeyValuePair<double, LightState?> Score(LightState? state, int firstAction)
     {
         _evaluated++;
-        (int, LightState?) state = lastState.HasValue ? _sim.SimulateToFailure(expansion, lastState.Value) : _sim.SimulateToFailure(expansion);
-        if (state is { Item1: > 0, Item2: not null })
-        {
-            double progress = Math.Min(_sim.Recipe.Difficulty, state.Item2.Value.Progress) / _sim.Recipe.Difficulty;
-            
-            double maxQuality = _sim.Recipe.MaxQuality * 1.1;
-            double quality = Math.Min(maxQuality, state.Item2.Value.Quality) / maxQuality;
-            if (expansion[0] == (int)Atlas.Actions.ActionMap.TrainedEye) quality = 1; 
+        if (!state.HasValue) return new(-1, null);
+        
+        double progress = Math.Min(_sim.Recipe.Difficulty, state.Value.Progress) / _sim.Recipe.Difficulty;
 
-            double cp = state.Item2.Value.CP / _sim.Crafter.CP;
-            double steps = 1 - state.Item2.Value.Step / 100D;
+        double maxQuality = _sim.Recipe.MaxQuality * 1.1;
+        double quality = Math.Min(maxQuality, state.Value.Quality) / maxQuality;
+        if (firstAction == (int)Atlas.Actions.ActionMap.TrainedEye) quality = 1;
 
-            return new((progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250, state.Item2); // max 100
-        }
-        else
-        {
-            _failures++;
-            return new(-1, null);
-        }
+        double cp = state.Value.CP / _sim.Crafter.CP;
+        double steps = 1 - state.Value.Step / 100D;
+
+        return new((progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250, state); // max 100
     }
 }

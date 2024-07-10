@@ -140,7 +140,6 @@ namespace Libraries
                 case (int)Atlas.Actions.ActionMap.PrudentTouch or (int)Atlas.Actions.ActionMap.PrudentSynthesis when countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot) || countdowns.ContainsKey((int)Atlas.Actions.ActionMap.WasteNot2):
                     return false;
             }
-
             #endregion
 
             #region Multipliers

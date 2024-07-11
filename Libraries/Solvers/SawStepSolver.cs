@@ -8,7 +8,7 @@ using static Solver;
 public class SawStepSolver
 {
     private const int
-        MaxThreads = 14,
+        MaxThreads = 20,
         MaxDepth = 26,
         StepForwardDepth = 6,
         StepBackDepth = StepForwardDepth - 1,

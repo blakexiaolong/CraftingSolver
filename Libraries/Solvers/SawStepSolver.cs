@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
-using System.Linq;
 
 namespace Libraries.Solvers;
 using static Solver;
@@ -21,14 +20,14 @@ public class SawStepSolver
 
     private readonly LightSimulator _sim;
     private readonly LoggingDelegate _logger;
-    private readonly short[] _actions;
-    private readonly short[][] _presolve;
+    private readonly byte[] _actions;
+    private readonly byte[][] _presolve;
 
     private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
     private readonly object _locker = new();
     private readonly Stopwatch _sw = new ();
-    private readonly ConcurrentBag<(double, List<short>, short[])> _stepResults = new();
+    private readonly ConcurrentBag<(double, List<byte>, byte[])> _stepResults = new();
 
     public SawStepSolver(LightSimulator sim, LoggingDelegate loggingDelegate)
     {
@@ -49,12 +48,12 @@ public class SawStepSolver
         _logger($"\n[{DateTime.Now}] {expansionsFound:N0} expansions found (eliminated {(double)solverSpace - expansionsFound:N0} [{1 - expansionsFound / (double)solverSpace:P0}] possible expansions)");
     }
 
-    private short[][] Presolve()
+    private byte[][] Presolve()
     {
-        List<short[]> allowedPaths = new();
+        List<byte[]> allowedPaths = new();
 
-        short[] path = new short[StepForwardDepth];
-        for (int i = 0; i < path.Length; i++) path[i] = (short)_sim.Crafter.Actions[0];
+        byte[] path = new byte[StepForwardDepth];
+        for (int i = 0; i < path.Length; i++) path[i] = (byte)_sim.Crafter.Actions[0];
 
         do
         {
@@ -63,7 +62,7 @@ public class SawStepSolver
 
         return allowedPaths.ToArray();
     }
-    private bool PresolveIterator(ref short[] path, int ix = StepForwardDepth - 1)
+    private bool PresolveIterator(ref byte[] path, int ix = StepForwardDepth - 1)
     {
         if (ix == 0) Console.Write(".");
         
@@ -73,52 +72,51 @@ public class SawStepSolver
         }
         else if (path[ix] == _sim.Crafter.Actions[^1])
         {
-            path[ix] = (short)_sim.Crafter.Actions[0];
+            path[ix] = (byte)_sim.Crafter.Actions[0];
             return PresolveIterator(ref path, ix - 1);
         }
         else
         {
             for (int i = 0; i < _sim.Crafter.Actions.Length; i++)
             {
-                if (_sim.Crafter.Actions[i] == path[ix])
-                {
-                    path[ix] = (short)_sim.Crafter.Actions[i + 1];
-                    return true;
-                }
+                if (_sim.Crafter.Actions[i] != path[ix]) continue;
+                
+                path[ix] = (byte)_sim.Crafter.Actions[i + 1];
+                return true;
             }
             return false;
         }
     }
-    private bool AuditPresolve(short[] path)
+    private bool AuditPresolve(byte[] path)
     {
-        //var z = path.Select(x => Atlas.Actions.AllActions[x].ShortName).ToList();
+        //var z = path.Select(x => Atlas.Actions.AllActions[x].byteName).ToList();
         
         for (int i = 0; i < path.Length; i++)
         {
             if (i < path.Length - 1 && Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i + 1]) return false;
-            if (i > 0 && path[i] == (short)Atlas.Actions.ActionMap.BasicTouch && (path[i - 1] == (short)Atlas.Actions.ActionMap.StandardTouch || path[i - 1] == (short)Atlas.Actions.ActionMap.BasicTouch)) return false;
-            if (i > 0 && path[i] == (short)Atlas.Actions.ActionMap.StandardTouch && path[i - 1] == (short)Atlas.Actions.ActionMap.StandardTouch) return false;
+            if (i > 0 && path[i] == (byte)Atlas.Actions.ActionMap.BasicTouch && (path[i - 1] == (byte)Atlas.Actions.ActionMap.StandardTouch || path[i - 1] == (byte)Atlas.Actions.ActionMap.BasicTouch)) return false;
+            if (i > 0 && path[i] == (byte)Atlas.Actions.ActionMap.StandardTouch && path[i - 1] == (byte)Atlas.Actions.ActionMap.StandardTouch) return false;
             if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return false;
         }
 
-        if (FindAction((short)Atlas.Actions.ActionMap.ByregotsBlessing, path).Count > 1) return false;
+        if (FindAction((byte)Atlas.Actions.ActionMap.ByregotsBlessing, path).Count > 1) return false;
 
-        List<int> indexes = FindAction((short)Atlas.Actions.ActionMap.WasteNot, path).Concat(FindAction((short)Atlas.Actions.ActionMap.WasteNot2, path)).ToList();
+        List<int> indexes = FindAction((byte)Atlas.Actions.ActionMap.WasteNot, path).Concat(FindAction((byte)Atlas.Actions.ActionMap.WasteNot2, path)).ToList();
         if (indexes.Any(x => indexes.Any(y => x - y == 1 || x - y == 2))) return false;
-        List<int> indexes2 = FindAction((short)Atlas.Actions.ActionMap.PrudentSynthesis, path).Concat(FindAction((short)Atlas.Actions.ActionMap.PrudentTouch, path)).ToList();
+        List<int> indexes2 = FindAction((byte)Atlas.Actions.ActionMap.PrudentSynthesis, path).Concat(FindAction((byte)Atlas.Actions.ActionMap.PrudentTouch, path)).ToList();
         foreach (int ix in indexes) if (indexes2.Any(x => x > ix && x - ix < Atlas.Actions.AllActions[path[ix]].ActiveTurns)) return false;
 
-        indexes = FindAction((short)Atlas.Actions.ActionMap.Manipulation, path).ToList();
+        indexes = FindAction((byte)Atlas.Actions.ActionMap.Manipulation, path).ToList();
         if (indexes.Any(x => indexes.Any(y => x - y > 0 && x - y < 6))) return false;
 
-        indexes = FindAction((short)Atlas.Actions.ActionMap.Veneration, path).ToList();
+        indexes = FindAction((byte)Atlas.Actions.ActionMap.Veneration, path).ToList();
         for (int i = 0; i < indexes.Count; i++)
         {
             int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
             if (path.Length > indexes[i] + duration && path.Skip(indexes[i] + 1).Take(duration).All(x => !Atlas.Actions.ProgressActions.Contains(x))) return false;
         }
         
-        indexes = FindAction((short)Atlas.Actions.ActionMap.Innovation, path).ToList();
+        indexes = FindAction((byte)Atlas.Actions.ActionMap.Innovation, path).ToList();
         for (int i = 0; i < indexes.Count; i++)
         {
             int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
@@ -131,11 +129,11 @@ public class SawStepSolver
             Action action = Atlas.Actions.AllActions[ac];
             int cost = action.DurabilityCost;
             if (wn > 0 && cost > 0) cost /= 2;
-            if (durability == _sim.Recipe.Durability && ac is (short)Atlas.Actions.ActionMap.MastersMend or (short)Atlas.Actions.ActionMap.ImmaculateMend) return false;
-            if (ac is (short)Atlas.Actions.ActionMap.WasteNot or (short)Atlas.Actions.ActionMap.WasteNot2) wn = Math.Max(wn, action.ActiveTurns);
-            if (ac == (short)Atlas.Actions.ActionMap.Manipulation) manip = Math.Max(manip, action.ActiveTurns);
-            if (ac == (short)Atlas.Actions.ActionMap.MastersMend) durability += 30;
-            if (ac == (short)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
+            if (durability == _sim.Recipe.Durability && ac is (byte)Atlas.Actions.ActionMap.MastersMend or (byte)Atlas.Actions.ActionMap.ImmaculateMend) return false;
+            if (ac is (byte)Atlas.Actions.ActionMap.WasteNot or (byte)Atlas.Actions.ActionMap.WasteNot2) wn = Math.Max(wn, action.ActiveTurns);
+            if (ac == (byte)Atlas.Actions.ActionMap.Manipulation) manip = Math.Max(manip, action.ActiveTurns);
+            if (ac == (byte)Atlas.Actions.ActionMap.MastersMend) durability += 30;
+            if (ac == (byte)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
             durability -= cost;
             if (manip > 0) durability += 5;
             durability = Math.Min(durability, _sim.Recipe.Durability);
@@ -145,7 +143,7 @@ public class SawStepSolver
         
         return true;
     }
-    private List<int> FindAction(short action, short[] path)
+    private List<int> FindAction(byte action, byte[] path)
     {
         List<int> indexes = new();
         for (int i = 0; i < path.Length; i++)
@@ -164,7 +162,7 @@ public class SawStepSolver
         {
             var prevStep =
                 (step == 0
-                    ? _actions.Select(x => (-1D, new List<short> { x }, Array.Empty<short>())).Where(x => _sim.Simulate(x.Item2) is not null)
+                    ? _actions.Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>())).Where(x => _sim.Simulate(x.Item2) is not null)
                     : _stepResults.OrderByDescending(x => x.Item1).Take(StepSize))
                 .ToList();
             _stepResults.Clear();
@@ -188,11 +186,11 @@ public class SawStepSolver
             _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures ({_failures / (double)_evaluated:P0}) || forward set: {_forwardSet:N0}");
         } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth);
 
-        //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].ShortName)))).ToList();
+        //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].byteName)))).ToList();
         return _bestSolution;
     }
 
-    private Thread SolverThread(int threadId, LightState? lastState, (double, List<short>, short[]) prevStep) => new(() =>
+    private Thread SolverThread(int threadId, LightState? lastState, (double, List<byte>, byte[]) prevStep) => new(() =>
     {
         if (_countdown.IsSet) return;
         _countdown.AddCount();
@@ -205,13 +203,13 @@ public class SawStepSolver
         _countdown.Signal();
     });
 
-    private List<(double, List<short>, short[])> StepForward(LightState? lastState, (double, List<short>, short[]) prevStep)
+    private List<(double, List<byte>, byte[])> StepForward(LightState? lastState, (double, List<byte>, byte[]) prevStep)
     {
-        ResetLocals(out double localBestScore, out short[] localBestPath, out short[] localBestExpansion);
-        List<(double, List<short>, short[])> ret = new();
+        ResetLocals(out double localBestScore, out byte[] localBestPath, out byte[] localBestExpansion);
+        List<(double, List<byte>, byte[])> ret = new();
         if (prevStep.Item3.Any())
         {
-            List<short> prevExpansion = prevStep.Item3.Skip(1).ToList();
+            List<byte> prevExpansion = prevStep.Item3.Skip(1).ToList();
             LightState? prevState = _sim.Simulate(prevExpansion, lastState!.Value);
             foreach (var action in _actions)
             {
@@ -223,14 +221,14 @@ public class SawStepSolver
                 }
 
                 KeyValuePair<double, LightState?> score = Score(s, action);
-                short[] batch = { action };
+                byte[] batch = { action };
                 ConfirmHighScore(score, prevStep, batch);
                 PreserveState(score.Key, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, batch);
             }
         }
 
-        short prevKey = -1;
-        int skipIx = -1; short skipKey = -1;
+        byte prevKey = byte.MaxValue;
+        int skipIx = -1; byte skipKey = 0;
         foreach (var batch in _presolve)
         {
             switch (skipIx)
@@ -239,7 +237,7 @@ public class SawStepSolver
                 case >= 0: skipIx = -1; break; // record scratch
             }
             
-            short key = batch[0];
+            byte key = batch[0];
             if (prevKey != key)
             {
                 if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Length - StepBackDepth).ToList(),  localBestExpansion));
@@ -284,13 +282,13 @@ public class SawStepSolver
         return new((progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250, state); // max 100
     }
 
-    private void ResetLocals(out double localBestScore, out short[] localBestPath, out short[] localBestExpansion)
+    private void ResetLocals(out double localBestScore, out byte[] localBestPath, out byte[] localBestExpansion)
     {
         localBestScore = double.MinValue;
-        localBestPath = Array.Empty<short>();
-        localBestExpansion = Array.Empty<short>();
+        localBestPath = Array.Empty<byte>();
+        localBestExpansion = Array.Empty<byte>();
     }
-    private void PreserveState(double score, ref double localBestScore, ref short[] localBestPath, ref short[] localBestExpansion, (double, List<short>, short[]) prevStep, short[] batch)
+    private void PreserveState(double score, ref double localBestScore, ref byte[] localBestPath, ref byte[] localBestExpansion, (double, List<byte>, byte[]) prevStep, byte[] batch)
     {
         if (score <= localBestScore) return;
         
@@ -299,14 +297,14 @@ public class SawStepSolver
         localBestExpansion = batch.ToArray();
         
     }
-    private void ConfirmHighScore(KeyValuePair<double, LightState?> score, (double, List<short>, short[]) prevStep, short[] batch)
+    private void ConfirmHighScore(KeyValuePair<double, LightState?> score, (double, List<byte>, byte[]) prevStep, byte[] batch)
     {
         if (score.Key <= _bestScore || !score.Value!.Value.Success(_sim)) return;
         
         lock (_locker)
         {
             if (score.Key <= _bestScore) return;
-            short[] path = prevStep.Item2.Concat(batch).ToArray();
+            byte[] path = prevStep.Item2.Concat(batch).ToArray();
 
             _bestScore = score.Key;
             _bestSolution = path.Select(x => Atlas.Actions.AllActions[x]).ToList();

@@ -38,7 +38,7 @@
                 InnerQuiet
             }
 
-            public static readonly Dictionary<short, Action> AllActions = new()
+            public static readonly Dictionary<byte, Action> AllActions = new()
             {
                 {
                     (int)ActionMap.DummyAction, new()
@@ -641,7 +641,7 @@
                     }
                 }
             };
-            public static readonly short[] DependableActions = { // 25
+            public static readonly byte[] DependableActions = { // 25
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.Reflect,
                 (int)ActionMap.TrainedEye,
@@ -672,12 +672,12 @@
                 (int)ActionMap.TrainedFinesse,
                 (int)ActionMap.RefinedTouch,
             };
-            public static readonly short[] FirstRoundActions = {
+            public static readonly byte[] FirstRoundActions = {
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.TrainedEye,
                 (int)ActionMap.Reflect
             };
-            public static readonly short[] Buffs =
+            public static readonly byte[] Buffs =
             {
                 (int)ActionMap.Manipulation,
                 (int)ActionMap.WasteNot,
@@ -689,8 +689,8 @@
                 (int)ActionMap.TrainedPerfection,
                 //(int)ActionMap.FinalAppraisal //TODO: this
             };
-            public static readonly short[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
-            public static readonly short[] QualityActions = DependableActions.Where(x => AllActions[x].QualityIncreaseMultiplier > 0).Concat(new[] { (short)ActionMap.TrainedEye }).ToArray();
+            public static readonly byte[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
+            public static readonly byte[] QualityActions = DependableActions.Where(x => AllActions[x].QualityIncreaseMultiplier > 0).Concat(new[] { (byte)ActionMap.TrainedEye }).ToArray();
             public static readonly KeyValuePair<int, double>[] DurabilityActions = {
                 new((int)ActionMap.WasteNot2, (20D * 8) / AllActions[(int)ActionMap.WasteNot2].CPCost),
                 new((int)ActionMap.WasteNot, (20D * 4) / AllActions[(int)ActionMap.WasteNot].CPCost),

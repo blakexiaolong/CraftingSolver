@@ -252,10 +252,17 @@ public class SawStepSolver
             }
         }
 
-        short prevKey = -1, key;
+        short prevKey = -1;
+        int skipIx = -1; short skipKey = -1;
         foreach (var batch in _presolve)
         {
-            key = batch[0];
+            switch (skipIx)
+            {
+                case >= 0 when batch[skipIx] == skipKey: continue; // fast-forward
+                case >= 0: skipIx = -1; break; // record scratch
+            }
+            
+            short key = batch[0];
             if (prevKey != key)
             {
                 if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList(),  localBestExpansion));
@@ -266,11 +273,14 @@ public class SawStepSolver
                 prevKey = key;
             }
 
-            (int, LightState?) state = lastState.HasValue
-                ? _sim.SimulateToFailure(batch, lastState.Value)
-                : _sim.SimulateToFailure(batch);
+            (int, LightState?) state = lastState.HasValue ? _sim.SimulateToFailure(batch, lastState.Value) : _sim.SimulateToFailure(batch);
             KeyValuePair<double, LightState?> score = Score(state.Item2, key);
-            if (state.Item1 < StepForwardDepth) _failures++;
+            if (state.Item1 < StepForwardDepth)
+            {
+                _failures++;
+                skipIx = state.Item1;
+                skipKey = batch[state.Item1];
+            }
 
             if (score.Key <= localBestScore) continue;
 

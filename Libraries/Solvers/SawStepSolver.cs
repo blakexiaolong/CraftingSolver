@@ -10,7 +10,7 @@ public class SawStepSolver
     private const int
         MaxThreads = 14,
         MaxDepth = 26,
-        StepForwardDepth = 5,
+        StepForwardDepth = 6,
         StepBackDepth = StepForwardDepth - 1,
         StepSize = 20;
 
@@ -53,7 +53,7 @@ public class SawStepSolver
         List<byte[]> allowedPaths = new();
 
         byte[] path = new byte[StepForwardDepth];
-        for (int i = 0; i < path.Length; i++) path[i] = (byte)_sim.Crafter.Actions[0];
+        for (int i = 0; i < path.Length; i++) path[i] = _sim.Crafter.Actions[0];
 
         do
         {
@@ -62,31 +62,33 @@ public class SawStepSolver
 
         return allowedPaths.ToArray();
     }
+
     private bool PresolveIterator(ref byte[] path, int ix = StepForwardDepth - 1)
     {
-        if (ix == 0) Console.Write(".");
-        
-        if (ix == -1)
+        while (true)
         {
-            return false;
-        }
-        else if (path[ix] == _sim.Crafter.Actions[^1])
-        {
-            path[ix] = (byte)_sim.Crafter.Actions[0];
-            return PresolveIterator(ref path, ix - 1);
-        }
-        else
-        {
+            if (ix == 0) Console.Write(".");
+
+            if (ix == -1) return false;
+            if (path[ix] == _sim.Crafter.Actions[^1])
+            {
+                path[ix] = _sim.Crafter.Actions[0];
+                ix -= 1;
+                continue;
+            }
+
             for (int i = 0; i < _sim.Crafter.Actions.Length; i++)
             {
                 if (_sim.Crafter.Actions[i] != path[ix]) continue;
-                
-                path[ix] = (byte)_sim.Crafter.Actions[i + 1];
+
+                path[ix] = _sim.Crafter.Actions[i + 1];
                 return true;
             }
+
             return false;
         }
     }
+
     private bool AuditPresolve(byte[] path)
     {
         //var z = path.Select(x => Atlas.Actions.AllActions[x].byteName).ToList();
@@ -106,17 +108,17 @@ public class SawStepSolver
         List<int> indexes2 = FindAction((byte)Atlas.Actions.ActionMap.PrudentSynthesis, path).Concat(FindAction((byte)Atlas.Actions.ActionMap.PrudentTouch, path)).ToList();
         foreach (int ix in indexes) if (indexes2.Any(x => x > ix && x - ix < Atlas.Actions.AllActions[path[ix]].ActiveTurns)) return false;
 
-        indexes = FindAction((byte)Atlas.Actions.ActionMap.Manipulation, path).ToList();
+        indexes = FindAction((byte)Atlas.Actions.ActionMap.Manipulation, path);
         if (indexes.Any(x => indexes.Any(y => x - y > 0 && x - y < 6))) return false;
 
-        indexes = FindAction((byte)Atlas.Actions.ActionMap.Veneration, path).ToList();
+        indexes = FindAction((byte)Atlas.Actions.ActionMap.Veneration, path);
         for (int i = 0; i < indexes.Count; i++)
         {
             int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
             if (path.Length > indexes[i] + duration && path.Skip(indexes[i] + 1).Take(duration).All(x => !Atlas.Actions.ProgressActions.Contains(x))) return false;
         }
         
-        indexes = FindAction((byte)Atlas.Actions.ActionMap.Innovation, path).ToList();
+        indexes = FindAction((byte)Atlas.Actions.ActionMap.Innovation, path);
         for (int i = 0; i < indexes.Count; i++)
         {
             int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);

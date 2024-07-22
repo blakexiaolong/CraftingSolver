@@ -38,7 +38,7 @@
                 InnerQuiet
             }
 
-            public static readonly Dictionary<int, Action> AllActions = new()
+            public static readonly Dictionary<short, Action> AllActions = new()
             {
                 {
                     (int)ActionMap.DummyAction, new()
@@ -641,7 +641,7 @@
                     }
                 }
             };
-            public static readonly int[] DependableActions = { // 25
+            public static readonly short[] DependableActions = { // 25
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.Reflect,
                 (int)ActionMap.TrainedEye,
@@ -672,20 +672,12 @@
                 (int)ActionMap.TrainedFinesse,
                 (int)ActionMap.RefinedTouch,
             };
-            public static readonly int[] FirstRoundActions = {
+            public static readonly short[] FirstRoundActions = {
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.TrainedEye,
                 (int)ActionMap.Reflect
             };
-            private static readonly int[] ProgressBuffs = {
-                (int)ActionMap.Veneration,
-                // FinalAppraisal // TODO: This
-            };
-            private static readonly int[] QualityBuffs = {
-                (int)ActionMap.Innovation,
-                (int)ActionMap.GreatStrides
-            };
-            public static readonly int[] Buffs =
+            public static readonly short[] Buffs =
             {
                 (int)ActionMap.Manipulation,
                 (int)ActionMap.WasteNot,
@@ -697,8 +689,8 @@
                 (int)ActionMap.TrainedPerfection,
                 //(int)ActionMap.FinalAppraisal //TODO: this
             };
-            public static readonly int[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
-            public static readonly int[] QualityActions = DependableActions.Where(x => AllActions[x].QualityIncreaseMultiplier > 0).Concat(new[] { (int)ActionMap.TrainedEye }).ToArray();
+            public static readonly short[] ProgressActions = DependableActions.Where(x => AllActions[x].ProgressIncreaseMultiplier > 0).ToArray();
+            public static readonly short[] QualityActions = DependableActions.Where(x => AllActions[x].QualityIncreaseMultiplier > 0).Concat(new[] { (short)ActionMap.TrainedEye }).ToArray();
             public static readonly KeyValuePair<int, double>[] DurabilityActions = {
                 new((int)ActionMap.WasteNot2, (20D * 8) / AllActions[(int)ActionMap.WasteNot2].CPCost),
                 new((int)ActionMap.WasteNot, (20D * 4) / AllActions[(int)ActionMap.WasteNot].CPCost),

@@ -250,8 +250,6 @@ public class SawStepSolver
                     localBestExpansion = prevExpansion.Concat(new[] { action }).ToArray();
                 }
             }
-
-            if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList(), localBestExpansion));
         }
 
         short prevKey = -1, key;
@@ -293,10 +291,11 @@ public class SawStepSolver
             if (state.Item1 == StepForwardDepth && score.Key > localBestScore)
             {
                 localBestScore = score.Key;
-                localBestPath = prevStep.Item2.ToList();
+                localBestPath = prevStep.Item2.Concat(batch).ToList();
                 localBestExpansion = batch.ToArray();
             }
         }
+        if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Count - StepBackDepth).ToList(),  localBestExpansion));
 
         return ret;
     }

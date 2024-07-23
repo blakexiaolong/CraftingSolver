@@ -247,7 +247,7 @@ public class SawStepSolver
                 prevKey = key;
             }
 
-            (int, LightState?) state = prevState.HasValue ? _sim.SimulateToFailure(preSolution, prevState.Value) : _sim.SimulateToFailure(preSolution);
+            (int, LightState?) state = _sim.SimulateToFailure(preSolution, prevState ?? default);
             if (state.Item1 < StepForwardDepth)
             {
                 _failures++;

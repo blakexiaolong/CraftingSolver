@@ -25,20 +25,7 @@ namespace Libraries
             BaseQualityIncrease = CalculateBaseQualityIncrease();
         }
 
-        public (int, LightState?) SimulateToFailure(IEnumerable<byte> actions, bool useDurability = true)
-        {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            int i = 0;
-            foreach (var action in actions)
-            {
-                if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability))
-                    return (i, Simulate(actions.Take(i), useDurability)); // TODO: This is a bad solution
-                i++;
-            }
-            if (!useDurability) durability = Recipe.Durability;
-            return (i, SetState(progress, quality, cp, durability, innerQuiet, step, countdowns));
-        }
-        public (int, LightState?) SimulateToFailure(IEnumerable<byte> actions, LightState startState, bool useDurability = true)
+        public (int, LightState?) SimulateToFailure(byte[] actions, LightState? startState = null, bool useDurability = true)
         {
             ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             int i = 0;
@@ -51,30 +38,14 @@ namespace Libraries
             if (!useDurability) durability = Recipe.Durability;
             return (i, SetState(progress, quality, cp, durability, innerQuiet, step, countdowns));
         }
-        public LightState? Simulate(IEnumerable<byte> actions, bool useDurability = true)
-        {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            foreach (var action in actions)
-                if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
-            if (!useDurability) durability = Recipe.Durability;
-            return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
-        }
-        public LightState? Simulate(byte action, bool useDurability = true)
-        {
-            ExtractState(null, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
-            if (!useDurability) durability = Recipe.Durability;
-            return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
-        }
-        public LightState? Simulate(IEnumerable<byte> actions, LightState startState, bool useDurability = true)
+        public LightState? Simulate(IEnumerable<byte> actions, LightState? startState = null, bool useDurability = true)
         {
             ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            foreach (var action in actions)
-                if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
+            if (actions.Any(action => !Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability))) return null;
             if (!useDurability) durability = Recipe.Durability;
             return SetState(progress, quality, cp, durability, innerQuiet, step, countdowns);
         }
-        public LightState? Simulate(byte action, LightState startState, bool useDurability = true)
+        public LightState? Simulate(byte action, LightState? startState = null, bool useDurability = true)
         {
             ExtractState(startState, out double progress, out double quality, out double cp, out double durability, out int innerQuiet, out int step, out Dictionary<int, int> countdowns, Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             if (!Simulate(action, ref progress, ref quality, ref cp, ref durability, ref innerQuiet, ref step, countdowns, useDurability)) return null;
@@ -308,11 +279,10 @@ namespace Libraries
             }
             if (a.ActionType == ActionType.CountDown)
             {
-                if (countdowns.ContainsKey(action))
+                if (!countdowns.TryAdd(action, turns))
                     if (countdowns[action] > 0) return false;
                     else if (action == (int)Atlas.Actions.ActionMap.TrainedPerfection) return false;
                     else countdowns[action] = turns;
-                else countdowns.Add(action, turns);
             }
             #endregion
 

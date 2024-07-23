@@ -10,7 +10,7 @@ public class SawStepSolver
     private const int
         MaxThreads = 14,
         MaxDepth = 26,
-        StepForwardDepth = 6,
+        StepForwardDepth = 5,
         StepBackDepth = StepForwardDepth - 1,
         StepSize = 20;
 
@@ -223,7 +223,7 @@ public class SawStepSolver
                 }
 
                 KeyValuePair<double, LightState?> score = Score(s, action);
-                byte[] batch = { action };
+                byte[] batch = prevExpansion.Concat(new[] { action }).ToArray();
                 ConfirmHighScore(score, prevStep, batch);
                 PreserveState(score.Key, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, batch);
             }

@@ -11,7 +11,7 @@ public class SawStepSolver
         MaxThreads = 20,
         MaxDepth = 15,
         StepForwardDepth = 6,
-        StepSize = 5;
+        StepSize = 20;
 
     private double _bestScore;
     private List<Action> _bestSolution;
@@ -43,6 +43,7 @@ public class SawStepSolver
         // TODO: Maybe yank this out into a database somehow?
         Console.Write("Pre-solving");
         _presolve = Presolve();
+        GC.Collect();
 
         double expansionsFound = _presolve.Length;
         _logger($"\n[{DateTime.Now}] {expansionsFound:N0} expansions found (eliminated {(double)solverSpace - expansionsFound:N0} [{1 - expansionsFound / (double)solverSpace:P0}] possible expansions)");
@@ -52,105 +53,133 @@ public class SawStepSolver
     {
         List<byte[]> allowedPaths = new();
 
+        int skipIx = -1, skipKey = 0;
+        long skipped = 0;
         byte[] path = new byte[StepForwardDepth];
-        for (int i = 0; i < path.Length; i++) path[i] = _sim.Crafter.Actions[0];
+        byte[] actions = _sim.Crafter.Actions.Where(x => !Atlas.Actions.FirstRoundActions.Contains(x)).ToArray();
+        for (int i = 0; i < path.Length; i++) path[i] = actions[0];
 
+        //TODO: multithread
         do
         {
-            if (AuditPresolve(path)) allowedPaths.Add(path.ToArray());
-        } while (PresolveIterator(ref path));
+            if (skipIx >= 0 && path[skipIx] == skipKey) continue; // nyoooom
+            else if (skipIx >= 0) skipIx = -1; // resume presolving
+            
+            (bool, int) audit = AuditPresolve(path);
+            if (audit.Item1)
+            {
+                allowedPaths.Add(path.ToArray());
+            }
+            else
+            {
+                skipIx = audit.Item2;
+                skipKey = path[skipIx];
+                skipped++;
+            }
+        } while (PresolveIterator(ref path, actions));
 
+        Console.WriteLine($"\nPresolved - {skipped:N0} elements were proactively skipped");
         return allowedPaths.ToArray();
     }
-
-    private bool PresolveIterator(ref byte[] path, int ix = StepForwardDepth - 1)
+    private bool PresolveIterator(ref byte[] path, byte[] allowedActions, int ix = StepForwardDepth - 1)
     {
         while (true)
         {
             if (ix == 0) Console.Write(".");
 
             if (ix == -1) return false;
-            if (path[ix] == _sim.Crafter.Actions[^1])
+            if (path[ix] == allowedActions[^1])
             {
-                path[ix] = _sim.Crafter.Actions[0];
+                path[ix] = allowedActions[0];
                 ix -= 1;
                 continue;
             }
 
-            for (int i = 0; i < _sim.Crafter.Actions.Length; i++)
+            for (int i = 0; i < allowedActions.Length; i++)
             {
-                if (_sim.Crafter.Actions[i] != path[ix]) continue;
+                if (allowedActions[i] != path[ix]) continue;
 
-                path[ix] = _sim.Crafter.Actions[i + 1];
+                path[ix] = allowedActions[i + 1];
                 return true;
             }
 
             return false;
         }
     }
-
-    private bool AuditPresolve(byte[] path)
+    private (bool,int) AuditPresolve(byte[] path)
     {
+        int durability = 5, wn = 0, manip = 0;
+        int lastWasteNot = -1, lastManip = -1, innovation = -1, veneration = -1;
+        bool byregotsUsed = false;
         for (int i = 0; i < path.Length; i++)
         {
-            if (i < path.Length - 1 && Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i + 1]) return false;
-            if (i > 0 && path[i] == (byte)Atlas.Actions.ActionMap.BasicTouch && (path[i - 1] == (byte)Atlas.Actions.ActionMap.StandardTouch || path[i - 1] == (byte)Atlas.Actions.ActionMap.BasicTouch)) return false;
-            if (i > 0 && path[i] == (byte)Atlas.Actions.ActionMap.StandardTouch && path[i - 1] == (byte)Atlas.Actions.ActionMap.StandardTouch) return false;
-            if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return false;
-        }
-
-        if (FindAction((byte)Atlas.Actions.ActionMap.ByregotsBlessing, path).Count > 1) return false;
-
-        List<int> indexes = FindAction((byte)Atlas.Actions.ActionMap.WasteNot, path).Concat(FindAction((byte)Atlas.Actions.ActionMap.WasteNot2, path)).ToList();
-        if (indexes.Any(x => indexes.Any(y => x - y == 1 || x - y == 2))) return false;
-        List<int> indexes2 = FindAction((byte)Atlas.Actions.ActionMap.PrudentSynthesis, path).Concat(FindAction((byte)Atlas.Actions.ActionMap.PrudentTouch, path)).ToList();
-        foreach (int ix in indexes) if (indexes2.Any(x => x > ix && x - ix < Atlas.Actions.AllActions[path[ix]].ActiveTurns)) return false;
-
-        indexes = FindAction((byte)Atlas.Actions.ActionMap.Manipulation, path);
-        if (indexes.Any(x => indexes.Any(y => x - y > 0 && x - y < 6))) return false;
-
-        indexes = FindAction((byte)Atlas.Actions.ActionMap.Veneration, path);
-        for (int i = 0; i < indexes.Count; i++)
-        {
-            int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
-            if (path.Length > indexes[i] + duration && path.Skip(indexes[i] + 1).Take(duration).All(x => !Atlas.Actions.ProgressActions.Contains(x))) return false;
-        }
-        
-        indexes = FindAction((byte)Atlas.Actions.ActionMap.Innovation, path);
-        for (int i = 0; i < indexes.Count; i++)
-        {
-            int duration = Math.Min(Atlas.Actions.AllActions[path[indexes[i]]].ActiveTurns, i < indexes.Count - 1 ? indexes[i + 1] - indexes[i] - 1 : int.MaxValue);
-            if (path.Length > indexes[i] + duration && path.Skip(indexes[i] + 1).Take(duration).All(x => !Atlas.Actions.QualityActions.Contains(x))) return false;
-        }
-        
-        int durability = 5, wn = 0, manip = 0;
-        foreach (var ac in path)
-        {
-            Action action = Atlas.Actions.AllActions[ac];
+            var action = Atlas.Actions.AllActions[path[i]];
+            if (i > 0)
+            {
+                if (Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i - 1]) return (false, i); // repeated buff
+                if (path[i] == (byte)Atlas.Actions.ActionMap.BasicTouch && path[i - 1] is (byte)Atlas.Actions.ActionMap.BasicTouch or (byte)Atlas.Actions.ActionMap.StandardTouch) return (false, i); // bad ordering
+                if (path[i] == (byte)Atlas.Actions.ActionMap.ByregotsBlessing)
+                {
+                    if (byregotsUsed) return (false, i); // not a good idea
+                    byregotsUsed = true;
+                }
+            }
+            if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return (false, i); // first round actions aren't allowed
             int cost = action.DurabilityCost;
             if (wn > 0 && cost > 0) cost /= 2;
-            if (durability == _sim.Recipe.Durability && ac is (byte)Atlas.Actions.ActionMap.MastersMend or (byte)Atlas.Actions.ActionMap.ImmaculateMend) return false;
-            if (ac is (byte)Atlas.Actions.ActionMap.WasteNot or (byte)Atlas.Actions.ActionMap.WasteNot2) wn = Math.Max(wn, action.ActiveTurns);
-            if (ac == (byte)Atlas.Actions.ActionMap.Manipulation) manip = Math.Max(manip, action.ActiveTurns);
-            if (ac == (byte)Atlas.Actions.ActionMap.MastersMend) durability += 30;
-            if (ac == (byte)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
+            if (durability == _sim.Recipe.Durability && path[i] is (byte)Atlas.Actions.ActionMap.MastersMend or (byte)Atlas.Actions.ActionMap.ImmaculateMend) return (false, i);
+            
+            if (path[i] is (byte)Atlas.Actions.ActionMap.WasteNot or (byte)Atlas.Actions.ActionMap.WasteNot2)
+            {
+                if (lastWasteNot >= 0 && i - lastWasteNot <= 2) return (false, i); // super wasteful
+                wn = Math.Max(wn, action.ActiveTurns);
+                lastWasteNot = i;
+            }
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.Manipulation)
+            {
+                if (lastManip >= 0 && i - lastManip <= 5) return (false, i); // not worth the GP
+                manip = Math.Max(manip, action.ActiveTurns);
+                lastManip = i;
+            }
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.MastersMend) durability += 30;
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.PrudentTouch || path[i]==(byte)Atlas.Actions.ActionMap.PrudentSynthesis)
+            {
+                if (wn > 0) return (false, i); // can't use this action
+            }
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.Veneration)
+            {
+                veneration = action.ActiveTurns + 1;
+            }
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.Innovation)
+            {
+                innovation = action.ActiveTurns + 1;
+            }
+
+            // intentionally seperated from above
+            if (innovation > 0 && action.QualityIncreaseMultiplier > 0)
+            {
+                innovation = 0; // this is only tracking if the buff has been used
+            }
+            else if (innovation == 0) return (false, i); // innovation fell off without being used
+
+            // intentionally seperated from above
+            if (veneration > 0 && action.ProgressIncreaseMultiplier > 0)
+            {
+                veneration = 0; // this is only tracking if the buff has been used
+            }
+            else if (veneration == 0) return (false, i); // veneration fell off without being used
+            
             durability -= cost;
             if (manip > 0) durability += 5;
             durability = Math.Min(durability, _sim.Recipe.Durability);
             wn--;
             manip--;
+            innovation--;
+            veneration--;
         }
-        
-        return true;
-    }
-    private List<int> FindAction(byte action, byte[] path)
-    {
-        List<int> indexes = new();
-        for (int i = 0; i < path.Length; i++)
-        {
-            if (path[i] == action) indexes.Add(i);
-        }
-        return indexes;
+
+        return (true, 0);
     }
 
     public async Task<List<Action>> Run()

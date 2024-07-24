@@ -11,7 +11,6 @@ public class SawStepSolver
         MaxThreads = 20,
         MaxDepth = 26,
         StepForwardDepth = 6,
-        StepBackDepth = StepForwardDepth - 1,
         StepSize = 20;
 
     private double _bestScore;
@@ -160,13 +159,13 @@ public class SawStepSolver
         _sw.Start();
 
         int step = 0;
+        List<(double, List<byte>, byte[])> prevStep = _actions
+            .Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>()))
+            .Where(x => !_sim.Simulate(x.Item2).IsError)
+            .ToList();
+        
         do
         {
-            var prevStep =
-                (step == 0
-                    ? _actions.Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>())).Where(x => _sim.Simulate(x.Item2) is not null)
-                    : _stepResults.OrderByDescending(x => x.Item1).Take(StepSize))
-                .ToList();
             _stepResults.Clear();
             _countdown = new(1);
             _evaluated = 0;
@@ -176,142 +175,147 @@ public class SawStepSolver
             List<Thread> extraThreads = new();
             for (int i = 0; i < prevStep.Count; i++)
             {
-                Thread t = SolverThread(i, _sim.Simulate(prevStep[i].Item2), prevStep[i]);
+                Thread t = SolverThread(i, prevStep[i]);
                 if (i < _threads.Length) _threads[i] = t;
                 else extraThreads.Add(t);
                 t.Start();
             }
-        
             foreach (Thread t in extraThreads) await Task.Run(() => t.Join());
+            
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
             _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures ({_failures / (double)_evaluated:P0}) || forward set: {_forwardSet:N0}");
+            
+            prevStep = _stepResults
+                .OrderByDescending(x => x.Item1)
+                .Take(StepSize)
+                .ToList();
         } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth);
 
         //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].byteName)))).ToList();
         return _bestSolution;
     }
 
-    private Thread SolverThread(int threadId, LightState? lastState, (double, List<byte>, byte[]) prevStep) => new(() =>
+    private Thread SolverThread(int threadId, (double, List<byte>, byte[]) prevStep) => new(() =>
     {
         if (_countdown.IsSet) return;
         _countdown.AddCount();
 
-        var forward = StepForward(lastState, prevStep);
-        _forwardSet += forward.Count;
-        foreach (var item in forward) _stepResults.Add(item);
+        ResetLocals(out double localBestScore, out var localBestPath, out var localBestExpansion);
+        List<(double, List<byte>, byte[])> forward = new();
+        LightState prevState = _sim.Simulate(prevStep.Item2);
         
-        if (threadId < _threads.Length) _threads[threadId] = null;
-        _countdown.Signal();
-    });
-
-    private List<(double, List<byte>, byte[])> StepForward(LightState? lastState, (double, List<byte>, byte[]) prevStep)
-    {
-        ResetLocals(out double localBestScore, out byte[] localBestPath, out byte[] localBestExpansion);
-        List<(double, List<byte>, byte[])> ret = new();
+        #region Handle Previous Expansion
         if (prevStep.Item3.Any())
         {
             List<byte> prevExpansion = prevStep.Item3.Skip(1).ToList();
-            LightState? prevState = _sim.Simulate(prevExpansion, lastState!.Value);
+            LightState expansionState = _sim.Simulate(prevExpansion, prevState);
             foreach (var action in _actions)
             {
-                LightState? s = _sim.Simulate(action, prevState!.Value);
-                if (s is null)
+                LightState s = _sim.Simulate(action, expansionState);
+                if (s.IsError)
                 {
                     _failures++;
                     continue;
                 }
 
-                KeyValuePair<double, LightState?> score = Score(s, action);
-                byte[] batch = { action };
-                ConfirmHighScore(score, prevStep, batch);
-                PreserveState(score.Key, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, batch);
+                double score = Score(s, action);
+                byte[] batch = prevExpansion.Concat(new[] { action }).ToArray();
+                ConfirmHighScore(score, s.Success(_sim), prevStep, batch);
+                PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, batch);
             }
         }
+        #endregion
 
+        #region Handle New Expansions
         byte prevKey = byte.MaxValue;
         int skipIx = -1; byte skipKey = 0;
-        foreach (var batch in _presolve)
+        foreach (var preSolution in _presolve)
         {
             switch (skipIx)
             {
-                case >= 0 when batch[skipIx] == skipKey: continue; // fast-forward
+                case >= 0 when preSolution[skipIx] == skipKey: continue; // fast-forward
                 case >= 0: skipIx = -1; break; // record scratch
             }
             
-            byte key = batch[0];
+            byte key = preSolution[0];
             if (prevKey != key)
             {
-                if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Length - StepBackDepth).ToList(),  localBestExpansion));
+                if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count+1).ToList(),  localBestExpansion.ToArray()));
                 ResetLocals(out localBestScore, out localBestPath, out localBestExpansion);
                 prevKey = key;
             }
 
-            (int, LightState?) state = lastState.HasValue ? _sim.SimulateToFailure(batch, lastState.Value) : _sim.SimulateToFailure(batch);
-            KeyValuePair<double, LightState?> score = Score(state.Item2, key);
-            if (state.Item1 < StepForwardDepth)
+            LightState state = _sim.SimulateToFailure(preSolution, prevState);
+            int stepsTaken = state.Step - prevState.Step;
+            if (stepsTaken < StepForwardDepth)
             {
                 _failures++;
-                skipIx = state.Item1;
-                skipKey = batch[state.Item1];
+                skipIx = stepsTaken;
+                skipKey = preSolution[stepsTaken];
+                continue;
             }
+            double score = Score(state, key);
 
-            if (score.Key <= localBestScore) continue;
-            ConfirmHighScore(score, prevStep, batch);
+            if (score <= localBestScore) continue;
+            ConfirmHighScore(score, state.Success(_sim), prevStep, preSolution);
 
-            if (state.Item1 != StepForwardDepth) continue;
-            PreserveState(score.Key, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, batch);
+            if (stepsTaken < StepForwardDepth) continue;
+            PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, preSolution);
         }
-        if (localBestScore >= 0) ret.Add((localBestScore, localBestPath.Take(localBestPath.Length - StepBackDepth).ToList(),  localBestExpansion));
+        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count+1).ToList(),  localBestExpansion.ToArray()));
+        #endregion
 
-        return ret.OrderByDescending(x => x.Item1).Take(StepSize).ToList();
-    }
+        _forwardSet += forward.Count;
+        foreach (var item in forward.OrderByDescending(x => x.Item1).Take(StepSize)) _stepResults.Add(item);
+        
+        if (threadId < _threads.Length) _threads[threadId] = null;
+        _countdown.Signal();
+    });
 
-    private KeyValuePair<double, LightState?> Score(LightState? state, int firstAction)
+    private double Score(LightState state, int firstAction)
     {
         _evaluated++;
-        if (!state.HasValue) return new(-1, null);
-        
-        double progress = Math.Min(_sim.Recipe.Difficulty, state.Value.Progress) / _sim.Recipe.Difficulty;
+        double progress = Math.Min(_sim.Recipe.Difficulty, state.Progress) / _sim.Recipe.Difficulty;
 
         double maxQuality = _sim.Recipe.MaxQuality * 1.1;
-        double quality = Math.Min(maxQuality, state.Value.Quality) / maxQuality;
+        double quality = Math.Min(maxQuality, state.Quality) / maxQuality;
         if (firstAction == (int)Atlas.Actions.ActionMap.TrainedEye) quality = 1;
 
-        double cp = state.Value.CP / _sim.Crafter.CP;
-        double steps = 1 - state.Value.Step / 100D;
+        double cp = state.CP / _sim.Crafter.CP;
+        double steps = 1 - state.Step / 100D;
 
-        return new((progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250, state); // max 100
+        return (progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250; // max 100
     }
 
-    private void ResetLocals(out double localBestScore, out byte[] localBestPath, out byte[] localBestExpansion)
+    private void ResetLocals(out double localBestScore, out IEnumerable<byte> localBestPath, out IEnumerable<byte> localBestExpansion)
     {
         localBestScore = double.MinValue;
         localBestPath = Array.Empty<byte>();
         localBestExpansion = Array.Empty<byte>();
     }
-    private void PreserveState(double score, ref double localBestScore, ref byte[] localBestPath, ref byte[] localBestExpansion, (double, List<byte>, byte[]) prevStep, byte[] batch)
+    private void PreserveState(double score, ref double localBestScore, ref IEnumerable<byte> localBestPath, ref IEnumerable<byte> localBestExpansion, (double, List<byte>, byte[]) prevStep, byte[] batch)
     {
         if (score <= localBestScore) return;
         
         localBestScore = score;
-        localBestPath = prevStep.Item2.Concat(batch).ToArray();
-        localBestExpansion = batch.ToArray();
+        localBestPath = prevStep.Item2.Concat(batch);
+        localBestExpansion = batch;
         
     }
-    private void ConfirmHighScore(KeyValuePair<double, LightState?> score, (double, List<byte>, byte[]) prevStep, byte[] batch)
+    private void ConfirmHighScore(double score, bool success, (double, List<byte>, byte[]) prevStep, IEnumerable<byte> batch)
     {
-        if (score.Key <= _bestScore || !score.Value!.Value.Success(_sim)) return;
+        if (score <= _bestScore || !success) return;
         
         lock (_locker)
         {
-            if (score.Key <= _bestScore) return;
+            if (score <= _bestScore) return;
             byte[] path = prevStep.Item2.Concat(batch).ToArray();
 
-            _bestScore = score.Key;
+            _bestScore = score;
             _bestSolution = path.Select(x => Atlas.Actions.AllActions[x]).ToList();
-            var s = _sim.SimulateToFailure(path);
-            _logger($"\t{_bestScore:P} ({s.Item2?.Quality ?? 0:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
+            LightState s = _sim.SimulateToFailure(path);
+            _logger($"\t{_bestScore:P} ({s.Quality:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
         }
     }
 }

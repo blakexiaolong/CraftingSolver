@@ -9,13 +9,14 @@ public class SawStepSolver
 {
     private const int
         MaxThreads = 20,
-        MaxDepth = 26,
+        MaxDepth = 15,
         StepForwardDepth = 6,
-        StepSize = 20;
+        StepSize = 5;
 
     private double _bestScore;
     private List<Action> _bestSolution;
-    private long _evaluated, _failures, _forwardSet;
+    private long _evaluated, _failures, _skipped , _forwardSet;
+    private long _totalEvaluated, _totalFailures, _totalSkipped, _nodesEvaluated;
 
     private readonly LightSimulator _sim;
     private readonly LoggingDelegate _logger;
@@ -90,8 +91,6 @@ public class SawStepSolver
 
     private bool AuditPresolve(byte[] path)
     {
-        //var z = path.Select(x => Atlas.Actions.AllActions[x].byteName).ToList();
-        
         for (int i = 0; i < path.Length; i++)
         {
             if (i < path.Length - 1 && Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i + 1]) return false;
@@ -163,13 +162,18 @@ public class SawStepSolver
             .Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>()))
             .Where(x => !_sim.Simulate(x.Item2).IsError)
             .ToList();
-        
+
+        _totalEvaluated = 0;
+        _totalFailures = 0;
+        _totalSkipped = 0;
+        _nodesEvaluated = 0;
         do
         {
             _stepResults.Clear();
             _countdown = new(1);
             _evaluated = 0;
             _failures = 0;
+            _skipped = 0;
             _forwardSet = 0;
 
             List<Thread> extraThreads = new();
@@ -180,19 +184,30 @@ public class SawStepSolver
                 else extraThreads.Add(t);
                 t.Start();
             }
+
             foreach (Thread t in extraThreads) await Task.Run(() => t.Join());
-            
+
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
-            _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] {_evaluated:N0} evaluated - {_failures:N0} failures ({_failures / (double)_evaluated:P0}) || forward set: {_forwardSet:N0}");
-            
+            _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] {_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - {_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) - {_failures:N0} failures ({(double)_failures / (_evaluated + _skipped):P0}) >> {_forwardSet:N0}");
+            _nodesEvaluated += prevStep.Count;
+
             prevStep = _stepResults
                 .OrderByDescending(x => x.Item1)
                 .Take(StepSize)
                 .ToList();
-        } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth);
+            _totalEvaluated += _evaluated;
+            _totalFailures += _failures;
+            _totalSkipped += _skipped;
+        } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth - StepForwardDepth);
 
         //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].byteName)))).ToList();
+        _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] " +
+                $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) " +
+                $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) - " +
+                $"{_totalFailures:N0} failures ({(double)_totalFailures / (_totalEvaluated + _totalSkipped):P0}) - " +
+                $"{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth):N0} nodes " +
+                $"(~{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth) / Math.Pow(_actions.Length, MaxDepth):P12} of game space) evaluated");
         return _bestSolution;
     }
 
@@ -213,6 +228,7 @@ public class SawStepSolver
             foreach (var action in _actions)
             {
                 LightState s = _sim.Simulate(action, expansionState);
+                _evaluated++;
                 if (s.IsError)
                 {
                     _failures++;
@@ -234,8 +250,12 @@ public class SawStepSolver
         {
             switch (skipIx)
             {
-                case >= 0 when preSolution[skipIx] == skipKey: continue; // fast-forward
-                case >= 0: skipIx = -1; break; // record scratch
+                case >= 0 when preSolution[skipIx] == skipKey:
+                    _skipped += 1;
+                    continue; // fast-forward
+                case >= 0:
+                    skipIx = -1;
+                    break; // record scratch
             }
             
             byte key = preSolution[0];
@@ -247,6 +267,7 @@ public class SawStepSolver
             }
 
             LightState state = _sim.SimulateToFailure(preSolution, prevState);
+            _evaluated++;
             int stepsTaken = state.Step - prevState.Step;
             if (stepsTaken < StepForwardDepth)
             {
@@ -259,11 +280,10 @@ public class SawStepSolver
 
             if (score <= localBestScore) continue;
             ConfirmHighScore(score, state.Success(_sim), prevStep, preSolution);
-
-            if (stepsTaken < StepForwardDepth) continue;
             PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, preSolution);
         }
-        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count+1).ToList(),  localBestExpansion.ToArray()));
+
+        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count + 1).ToList(), localBestExpansion.ToArray()));
         #endregion
 
         _forwardSet += forward.Count;
@@ -275,7 +295,6 @@ public class SawStepSolver
 
     private double Score(LightState state, int firstAction)
     {
-        _evaluated++;
         double progress = Math.Min(_sim.Recipe.Difficulty, state.Progress) / _sim.Recipe.Difficulty;
 
         double maxQuality = _sim.Recipe.MaxQuality * 1.1;
@@ -285,7 +304,7 @@ public class SawStepSolver
         double cp = state.CP / _sim.Crafter.CP;
         double steps = 1 - state.Step / 100D;
 
-        return (progress * 90 + quality * 150 + steps * 7 + cp * 3) / 250; // max 100
+        return (progress * 90 + quality * 150 + steps * 9 + cp * 1) / 250; // max 100
     }
 
     private void ResetLocals(out double localBestScore, out IEnumerable<byte> localBestPath, out IEnumerable<byte> localBestExpansion)

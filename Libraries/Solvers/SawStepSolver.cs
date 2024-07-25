@@ -10,7 +10,7 @@ public class SawStepSolver
     private const int
         MaxThreads = 20,
         MaxDepth = 15,
-        StepForwardDepth = 6,
+        StepForwardDepth = 5,
         StepSize = 20;
 
     private double _bestScore;

@@ -237,11 +237,8 @@
             }
             #endregion
 
-            #region Countdowns
             state.DecrementBuffs();
-
             if (a.ActionType == ActionType.CountDown) state.SetBuff(action, a.ActiveTurns);
-            #endregion
 
             state.Step      += 1;
             state.InnerQuiet = Math.Min(state.InnerQuiet, 10);
@@ -358,6 +355,9 @@
                 ObserveActive = false;
                 if (!ObserveUsed) return false;
             }
+
+            BasicTouchActive = false;
+            StandardTouchActive = false;
             
             return true;
         }

@@ -8,10 +8,10 @@ using static Solver;
 public class SawStepSolver
 {
     private const int
-        MaxThreads = 20,
-        MaxDepth = 15,
-        StepForwardDepth = 5,
-        StepSize = 20;
+        MaxThreads = 16,
+        MaxDepth = 30,
+        StepForwardDepth = 6,
+        StepSize = 200;
 
     private double _bestScore;
     private List<Action> _bestSolution;

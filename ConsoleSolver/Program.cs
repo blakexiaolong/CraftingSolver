@@ -147,6 +147,20 @@ Recipe
         ProgressModifier = 1,
         QualityModifier = 1,
         IsExpert = false
+    },
+    ArcheoBow = new()
+    {
+        Level = 100,
+        RLevel = 710,
+        Difficulty = 7500,
+        StartQuality = 0,
+        MaxQuality = 16500,
+        Durability = 70,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
     };
 
 Crafter
@@ -184,14 +198,14 @@ Crafter
     },
     dawntrailTemp = new()
     {
-        Craftsmanship = 4842,
-        Control = 4716,
-        CP = 658,
+        Craftsmanship = 4914,
+        Control = 4934,
+        CP = 730,
         Level = 100,
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrailTemp, thunderyardsCrafting);
+LightSimulator sim = new(dawntrailTemp, ArcheoBow);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

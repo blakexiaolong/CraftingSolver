@@ -8,10 +8,10 @@ using static Solver;
 public class SawStepSolver
 {
     private const int
-        MaxThreads = 16,
-        MaxDepth = 30,
+        MaxThreads = 20,
+        MaxDepth = 25,
         StepForwardDepth = 6,
-        StepSize = 200;
+        StepSize = 50;
 
     private double _bestScore;
     private List<Action> _bestSolution;
@@ -199,7 +199,7 @@ public class SawStepSolver
         do
         {
             _stepResults.Clear();
-            _countdown = new(1);
+            _countdown = new CountdownEvent(1);
             _evaluated = 0;
             _failures = 0;
             _skipped = 0;
@@ -209,12 +209,27 @@ public class SawStepSolver
             for (int i = 0; i < prevStep.Count; i++)
             {
                 Thread t = SolverThread(i, prevStep[i]);
-                if (i < _threads.Length) _threads[i] = t;
+                if (i < _threads.Length)
+                {
+                    _threads[i] = t;
+                    t.Start();
+                }
                 else extraThreads.Add(t);
-                t.Start();
             }
 
-            foreach (Thread t in extraThreads) await Task.Run(() => t.Join());
+            while (extraThreads.Any())
+            {
+                for (int i = 0; i < _threads.Length; i++)
+                {
+                    if (_threads[i] == null || !_threads[i]!.IsAlive)
+                    {
+                        extraThreads[0].Start();
+                        _threads[i] = extraThreads[0];
+                        extraThreads.RemoveAt(0);
+                    }
+                }
+                await Task.Delay(1_000);
+            }
 
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
@@ -230,7 +245,6 @@ public class SawStepSolver
             _totalSkipped += _skipped;
         } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth - StepForwardDepth);
 
-        //var bad = _presolve.SelectMany(x => x.Value.Where(y => y.Value == 0).Select(y => string.Join(", ", y.Key.Select(z => Atlas.Actions.AllActions[z].byteName)))).ToList();
         _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) " +
                 $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) - " +

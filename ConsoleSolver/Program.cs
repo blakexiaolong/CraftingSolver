@@ -161,6 +161,20 @@ Recipe
         ProgressModifier = 0.9,
         QualityModifier = 0.75,
         IsExpert = false
+    },
+    ArcheoPrecraft = new()
+    {
+        Level = 100,
+        RLevel = 710,
+        Difficulty = 4125,
+        StartQuality = 0,
+        MaxQuality = 12000,
+        Durability = 35,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
     };
 
 Crafter
@@ -196,16 +210,23 @@ Crafter
         Level = 90,
         Actions = Atlas.Actions.DependableActions
     },
-    dawntrailTemp = new()
+    dawntrail = new()
     {
         Craftsmanship = 4914,
-        Control = 4934,
-        CP = 730,
+        Control = 4837,
+        CP = 611,
+        Level = 100,
+        Actions = Atlas.Actions.DependableActions
+    },dawntrailBuffed = new()
+    {
+        Craftsmanship = 5034,
+        Control = 4837,
+        CP = 714,
         Level = 100,
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrailTemp, ArcheoBow);
+LightSimulator sim = new(dawntrailBuffed, ArcheoPrecraft);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

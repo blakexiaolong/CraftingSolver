@@ -39,10 +39,9 @@ public class SawStepSolver
         BigInteger gameSpace = BigInteger.Pow(_actions.Length, MaxDepth);
         BigInteger solverSpace = BigInteger.Pow(_actions.Length, StepForwardDepth);
         _logger($"[{DateTime.Now}] Game space is {gameSpace:N0} nodes, solver space is {solverSpace:N0} nodes");
-
-        // TODO: Maybe yank this out into a database somehow?
+        
         Console.Write("Pre-solving");
-        _presolve = Presolve();
+        _presolve = Presolve(); // TODO: Maybe yank this out into a database somehow?
         GC.Collect();
 
         double expansionsFound = _presolve.Length;
@@ -51,32 +50,45 @@ public class SawStepSolver
 
     private byte[][] Presolve()
     {
+        object presolveLock = new();
         List<byte[]> allowedPaths = new();
 
-        int skipIx = -1, skipKey = 0;
         long skipped = 0;
-        byte[] path = new byte[StepForwardDepth];
         byte[] actions = _sim.Crafter.Actions.Where(x => !Atlas.Actions.FirstRoundActions.Contains(x)).ToArray();
-        for (int i = 0; i < path.Length; i++) path[i] = actions[0];
 
-        //TODO: multithread
-        do
+        List<Thread> presolverThreads = new();
+        foreach (var t in actions)
         {
-            if (skipIx >= 0 && path[skipIx] == skipKey) continue; // nyoooom
-            else if (skipIx >= 0) skipIx = -1; // resume presolving
-            
-            (bool, int) audit = AuditPresolve(path);
-            if (audit.Item1)
+            byte[] path = new byte[StepForwardDepth];
+            path[0] = t;
+            for (int j = 1; j < path.Length; j++) path[j] = actions[0];
+
+            presolverThreads.Add(new Thread(() =>
             {
-                allowedPaths.Add(path.ToArray());
-            }
-            else
-            {
-                skipIx = audit.Item2;
-                skipKey = path[skipIx];
-                skipped++;
-            }
-        } while (PresolveIterator(ref path, actions));
+                List<byte[]> ret = new();
+                int skipIx = -1, skipKey = 0;
+
+                do
+                {
+                    if (skipIx >= 0 && path[skipIx] == skipKey) continue; // nyoooom
+                    else if (skipIx >= 0) skipIx = -1; // resume presolving
+
+                    var audit = AuditPresolve(path);
+                    if (audit.Item1) ret.Add(path.ToArray());
+                    else
+                    {
+                        skipIx = audit.Item2;
+                        skipKey = path[skipIx];
+                        skipped++;
+                    }
+                } while (PresolveIterator(ref path, actions));
+
+                Console.Write(".");
+                lock (presolveLock) allowedPaths.AddRange(ret);
+            }));
+        }
+        foreach (var t in presolverThreads) t.Start();
+        foreach (var t in presolverThreads) t.Join();
 
         Console.WriteLine($"\nPresolved - {skipped:N0} elements were proactively skipped");
         return allowedPaths.ToArray();
@@ -85,9 +97,9 @@ public class SawStepSolver
     {
         while (true)
         {
-            if (ix == 0) Console.Write(".");
-
-            if (ix == -1) return false;
+            if (ix == 0) return false; // we're done presolving (this first action)
+            
+            // set this to the 0th action so we can iterate the next left item
             if (path[ix] == allowedActions[^1])
             {
                 path[ix] = allowedActions[0];
@@ -95,15 +107,15 @@ public class SawStepSolver
                 continue;
             }
 
+            // iterate path[ix] to the next allowed action
             for (int i = 0; i < allowedActions.Length; i++)
             {
                 if (allowedActions[i] != path[ix]) continue;
-
                 path[ix] = allowedActions[i + 1];
                 return true;
             }
 
-            return false;
+            return false; // path[ix] isn't one of the allowed actions??
         }
     }
     private (bool,int) AuditPresolve(byte[] path)
@@ -187,10 +199,7 @@ public class SawStepSolver
         _sw.Start();
 
         int step = 0;
-        List<(double, List<byte>, byte[])> prevStep = _actions
-            .Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>()))
-            .Where(x => !_sim.Simulate(x.Item2).IsError)
-            .ToList();
+        List<(double, List<byte>, byte[])> prevStep = _actions.Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>())).Where(x => !_sim.Simulate(x.Item2).IsError).ToList();
 
         _totalEvaluated = 0;
         _totalFailures = 0;
@@ -221,7 +230,7 @@ public class SawStepSolver
             {
                 for (int i = 0; i < _threads.Length; i++)
                 {
-                    if (_threads[i] == null || !_threads[i]!.IsAlive)
+                    if (extraThreads.Any() && (_threads[i] == null || !_threads[i]!.IsAlive))
                     {
                         extraThreads[0].Start();
                         _threads[i] = extraThreads[0];
@@ -233,27 +242,27 @@ public class SawStepSolver
 
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
-            _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] {_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - {_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) - {_failures:N0} failures ({(double)_failures / (_evaluated + _skipped):P0}) >> {_forwardSet:N0}");
+            _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] " +
+                    $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
+                    $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) - " +
+                    $"{_failures:N0} failures ({(double)_failures / (_evaluated + _skipped):P0}) " +
+                    $">> {_forwardSet:N0}");
             _nodesEvaluated += prevStep.Count;
 
-            prevStep = _stepResults
-                .OrderByDescending(x => x.Item1)
-                .Take(StepSize)
-                .ToList();
+            prevStep = _stepResults.OrderByDescending(x => x.Item1).Take(StepSize).ToList();
             _totalEvaluated += _evaluated;
             _totalFailures += _failures;
             _totalSkipped += _skipped;
         } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth - StepForwardDepth);
 
         _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] " +
-                $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) " +
+                $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalFailures:N0} failures ({(double)_totalFailures / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth):N0} nodes " +
                 $"(~{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth) / Math.Pow(_actions.Length, MaxDepth):P12} of game space) evaluated");
         return _bestSolution;
     }
-
     private Thread SolverThread(int threadId, (double, List<byte>, byte[]) prevStep) => new(() =>
     {
         if (_countdown.IsSet) return;

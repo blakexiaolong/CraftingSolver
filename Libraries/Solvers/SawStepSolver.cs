@@ -9,13 +9,13 @@ public class SawStepSolver
 {
     private const int
         MaxThreads = 20,
-        MaxDepth = 25,
+        MaxDepth = 30,
         StepForwardDepth = 6,
-        StepSize = 50;
+        StepSize = 1_000;
 
     private double _bestScore;
     private List<Action> _bestSolution;
-    private long _evaluated, _failures, _skipped , _forwardSet;
+    private long _presolveFound, _evaluated, _failures, _skipped , _forwardSet;
     private long _totalEvaluated, _totalFailures, _totalSkipped, _nodesEvaluated;
 
     private readonly LightSimulator _sim;
@@ -38,14 +38,13 @@ public class SawStepSolver
 
         BigInteger gameSpace = BigInteger.Pow(_actions.Length, MaxDepth);
         BigInteger solverSpace = BigInteger.Pow(_actions.Length, StepForwardDepth);
-        _logger($"[{DateTime.Now}] Game space is {gameSpace:N0} nodes, solver space is {solverSpace:N0} nodes");
+        _logger($"[{DateTime.Now}] Game space is {gameSpace:N0} nodes, solver space [{StepForwardDepth}] is {solverSpace:N0} nodes (~1 / {gameSpace / solverSpace:N0})");
         
         Console.Write("Pre-solving");
         _presolve = Presolve(); // TODO: Maybe yank this out into a database somehow?
         GC.Collect();
 
-        double expansionsFound = _presolve.Length;
-        _logger($"\n[{DateTime.Now}] {expansionsFound:N0} expansions found (eliminated {(double)solverSpace - expansionsFound:N0} [{1 - expansionsFound / (double)solverSpace:P0}] possible expansions)");
+        _logger($"\n[{DateTime.Now}] {_presolveFound:N0} expansions found (eliminated {(double)solverSpace - _presolveFound:N0} [{1 - _presolveFound / (double)solverSpace:P0}] possible expansions)");
     }
 
     private byte[][] Presolve()
@@ -67,6 +66,7 @@ public class SawStepSolver
             {
                 List<byte[]> ret = new();
                 int skipIx = -1, skipKey = 0;
+                long f = 0;
 
                 do
                 {
@@ -74,17 +74,25 @@ public class SawStepSolver
                     else if (skipIx >= 0) skipIx = -1; // resume presolving
 
                     var audit = AuditPresolve(path);
-                    if (audit.Item1) ret.Add(path.ToArray());
+                    if (audit.Item1)
+                    {
+                        f += 1;
+                        ret.Add(path.ToArray());
+                    }
                     else
                     {
                         skipIx = audit.Item2;
                         skipKey = path[skipIx];
-                        skipped++;
+                        skipped += (long)BigInteger.Pow(actions.Length, StepForwardDepth - 1 - skipIx) - 1;
                     }
                 } while (PresolveIterator(ref path, actions));
 
                 Console.Write(".");
-                lock (presolveLock) allowedPaths.AddRange(ret);
+                lock (presolveLock)
+                {
+                    _presolveFound += f;
+                    allowedPaths.AddRange(ret);
+                }
             }));
         }
         foreach (var t in presolverThreads) t.Start();
@@ -137,9 +145,7 @@ public class SawStepSolver
                 }
             }
             if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return (false, i); // first round actions aren't allowed
-            int cost = action.DurabilityCost;
-            if (wn > 0 && cost > 0) cost /= 2;
-            if (durability == _sim.Recipe.Durability && path[i] is (byte)Atlas.Actions.ActionMap.MastersMend or (byte)Atlas.Actions.ActionMap.ImmaculateMend) return (false, i);
+            int cost = action.DurabilityCost / 2; // may have a ticking waste not
             
             if (path[i] is (byte)Atlas.Actions.ActionMap.WasteNot or (byte)Atlas.Actions.ActionMap.WasteNot2)
             {
@@ -225,6 +231,7 @@ public class SawStepSolver
                 }
                 else extraThreads.Add(t);
             }
+            await Task.Delay(1_000);
 
             while (extraThreads.Any())
             {
@@ -242,10 +249,10 @@ public class SawStepSolver
 
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
-            _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] [Step {step++ + 1}] " +
+            _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] [Step {step++ + 1}] " +
                     $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
-                    $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) - " +
-                    $"{_failures:N0} failures ({(double)_failures / (_evaluated + _skipped):P0}) " +
+                    $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) | " +
+                    $"{_failures:N0} failures ({(double)_failures / _evaluated:P0})" +
                     $">> {_forwardSet:N0}");
             _nodesEvaluated += prevStep.Count;
 
@@ -255,7 +262,7 @@ public class SawStepSolver
             _totalSkipped += _skipped;
         } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth - StepForwardDepth);
 
-        _logger($"[{DateTime.Now}, {_sw.ElapsedMilliseconds / 1000}s] " +
+        _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalFailures:N0} failures ({(double)_totalFailures / (_totalEvaluated + _totalSkipped):P0}) - " +
@@ -388,5 +395,37 @@ public class SawStepSolver
             LightState s = _sim.SimulateToFailure(path);
             _logger($"\t{_bestScore:P} ({s.Quality:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
         }
+    }
+
+    private string MsToHumanReadable(long ms, bool full = false)
+    {
+        int days = 0, hours = 0, minutes = 0, seconds = 0;
+        
+        while (ms - 86400000 > 0)
+        {
+            ms -= 86400000;
+            days += 1;
+        }
+        while (ms - 3600000 > 0)
+        {
+            ms -= 3600000;
+            hours += 1;
+        }
+        while (ms - 60000 > 0)
+        {
+            ms -= 60000;
+            minutes += 1;
+        }
+        while (ms - 1000 > 0)
+        {
+            ms -= 1000;
+            seconds += 1;
+        }
+
+        if (!full) return $"{(days > 0 ? $"{days}d" : "")}{(hours > 0 ? $"{hours}h" : "")}{(minutes > 0 ? $"{minutes}m" : "")}{(seconds > 0 ? $"{seconds}s" : "")}";
+        else if (days > 0) return $"{days}d{(hours > 0 ? $"{hours}h" : "")}";
+        else if (hours > 0) return $"{hours}h{(minutes > 0 ? $"{minutes}m" : "")}";
+        else if (minutes > 0) return $"{minutes}m{(seconds > 0 ? $"{seconds}s" : "")}";
+        else return $"{seconds}s";
     }
 }

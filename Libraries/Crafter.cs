@@ -4,8 +4,8 @@
     {
         public int Craftsmanship { get; init; }
         public int Control { get; init; }
-        public int CP { get; init; }
-        public int Level { get; init; }
+        public short CP { get; init; }
+        public byte Level { get; init; }
         public byte[] Actions { get; init; }
     }
 }

@@ -592,7 +592,7 @@
                         QualityIncreaseMultiplier = 0,
                         ProgressIncreaseMultiplier = 0,
                         ActionType = ActionType.CountDown,
-                        ActiveTurns = int.MaxValue,
+                        ActiveTurns = byte.MaxValue,
                         Class = "All",
                         Level = 100,
                         OnGood = false,

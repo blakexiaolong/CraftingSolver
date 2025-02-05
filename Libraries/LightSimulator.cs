@@ -23,70 +23,65 @@
             BaseQualityIncrease = CalculateBaseQualityIncrease();
         }
 
-        public LightState SimulateToFailure(byte[] actions, LightState startState, bool useDurability = true)
+        #region Public Calls
+        public LightState SimulateToFailure(byte[] actions, LightState startState)
         {
             LightState state = startState;
             foreach (var action in actions)
             {
                 LightState prevState = state;
-                if (!Simulate(action, ref state, useDurability)) return prevState;
+                if (!Simulate(action, ref state)) return prevState;
             }
-            if (!useDurability) state.Durability = Recipe.Durability;
             return state;
         }
-
-        public LightState SimulateToFailure(byte[] actions, bool useDurability = true)
+        public LightState SimulateToFailure(byte[] actions)
         {
             LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
             {
                 LightState prevState = state;
-                if (!Simulate(action, ref state, useDurability)) return prevState;
+                if (!Simulate(action, ref state)) return prevState;
             }
-            if (!useDurability) state.Durability = Recipe.Durability;
             return state;
         }
-
-        public LightState Simulate(IEnumerable<byte> actions, LightState startState, bool useDurability = true)
+        public LightState Simulate(IEnumerable<byte> actions, LightState startState)
         {
             LightState state = startState;
-            if (actions.Any(action => !Simulate(action, ref state, useDurability)))
+            if (actions.Any(action => !Simulate(action, ref state)))
             {
                 return new LightState { IsError = true };
             }
-            if (!useDurability) state.Durability = Recipe.Durability;
             return state;
         }
-        public LightState Simulate(byte action, LightState startState, bool useDurability = true)
+        public LightState Simulate(byte action, LightState startState)
         {
             LightState state = startState;
-            if (!Simulate(action, ref state, useDurability)) return new LightState { IsError = true };
-            if (!useDurability) state.Durability = Recipe.Durability;
+            if (!Simulate(action, ref state)) return new LightState { IsError = true };
             return state;
         }
-        public LightState Simulate(IEnumerable<byte> actions, bool useDurability = true)
+        public LightState Simulate(IEnumerable<byte> actions)
         {
             LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            if (actions.Any(action => !Simulate(action, ref state, useDurability)))
+            if (actions.Any(action => !Simulate(action, ref state)))
             {
                 return new LightState { IsError = true };
             }
-            if (!useDurability) state.Durability = Recipe.Durability;
             return state;
         }
-        public LightState Simulate(byte action, bool useDurability = true)
+        public LightState Simulate(byte action)
         {
             LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            if (!Simulate(action, ref state, useDurability)) return new LightState { IsError = true };
-            if (!useDurability) state.Durability = Recipe.Durability;
+            if (!Simulate(action, ref state)) return new LightState { IsError = true };
             return state;
         }
-        private bool Simulate(byte action, ref LightState state, bool useDurability = true)
+        #endregion
+        
+        private bool Simulate(byte action, ref LightState state)
         {
             Action a = Atlas.Actions.AllActions[action];
             #region Wasted Action Checks
             if (state.Progress >= Recipe.Difficulty) return false;
-            if (useDurability && state.Durability <= 0) return false;
+            if (state.Durability <= 0) return false;
             if (state.CP - a.CPCost < 0) return false;
             if (state.Step > 0 && action is (int)Atlas.Actions.ActionMap.Reflect or (int)Atlas.Actions.ActionMap.MuscleMemory or (int)Atlas.Actions.ActionMap.TrainedEye) return false;
             switch (action)
@@ -117,7 +112,7 @@
                     state.VenerationUsed = true;
                 }
 
-                if (action == (int)Atlas.Actions.ActionMap.Groundwork && (useDurability ? state.Durability : Recipe.Durability) < Atlas.Actions.AllActions[(int)Atlas.Actions.ActionMap.Groundwork].DurabilityCost)
+                if (action == (int)Atlas.Actions.ActionMap.Groundwork && state.Durability < Atlas.Actions.AllActions[(int)Atlas.Actions.ActionMap.Groundwork].DurabilityCost)
                 {
                     progressIncreaseMultiplier *= 0.5;
                 }
@@ -156,7 +151,7 @@
             }
             #endregion
 
-            int cpCost = a.CPCost;
+            short cpCost = a.CPCost;
             state.Progress += Math.Floor(BaseProgressIncrease * a.ProgressIncreaseMultiplier * progressIncreaseMultiplier);
             state.Quality += Math.Floor(action == (int)Atlas.Actions.ActionMap.TrainedEye ? Recipe.MaxQuality : BaseQualityIncrease * a.QualityIncreaseMultiplier * qualityIncreaseMultiplier);
 
@@ -175,7 +170,7 @@
             #endregion
 
             #region Durability
-            double durabilityCost = a.DurabilityCost;
+            byte durabilityCost = a.DurabilityCost;
             if (durabilityCost > 0 && state.TrainedPerfectionActive)
             {
                 durabilityCost = 0;
@@ -186,7 +181,7 @@
             if (state.WasteNotActive && a.DurabilityCost > 0)
             {
                 state.WasteNotUsed = true;
-                durabilityCost *= 0.5;
+                durabilityCost /= 2;
             }
             
             state.Durability -= durabilityCost;
@@ -237,35 +232,19 @@
             }
             #endregion
 
-            state.DecrementBuffs();
+            if (!state.DecrementBuffs()) return false;
             if (a.ActionType == ActionType.CountDown) state.SetBuff(action, a.ActiveTurns);
 
             state.Step      += 1;
-            state.InnerQuiet = Math.Min(state.InnerQuiet, 10);
+            state.InnerQuiet = Math.Min(state.InnerQuiet, (byte)10);
             state.CP         = Math.Min(state.CP - cpCost, Crafter.CP);
 
             return true;
         }
 
-        private double CalculateBaseProgressIncrease()
-        {
-            double b = (Crafter.Craftsmanship * 10 / Recipe.ProgressDivider + 2);
-            return Math.Floor(LevelDifference <= 0 ? b * Recipe.ProgressModifier : b);
-        }
-        private double CalculateBaseQualityIncrease()
-        {
-            double b = (Crafter.Control * 10 / Recipe.QualityDivider + 35);
-            return Math.Floor(LevelDifference <= 0 ? b * Recipe.QualityModifier : b);
-        }
-
-        private int GetEffectiveCrafterLevel()
-        {
-            if (!Atlas.LevelTable.TryGetValue(Crafter.Level, out int effectiveCrafterLevel))
-            {
-                effectiveCrafterLevel = Crafter.Level;
-            }
-            return effectiveCrafterLevel;
-        }
+        private double CalculateBaseProgressIncrease() => Math.Floor((Crafter.Craftsmanship * 10 / Recipe.ProgressDivider + 2) * (LevelDifference <= 0 ? Recipe.ProgressModifier : 1));
+        private double CalculateBaseQualityIncrease() => Math.Floor((Crafter.Control * 10 / Recipe.QualityDivider + 35) * (LevelDifference <= 0 ? Recipe.QualityModifier : 1));
+        private int GetEffectiveCrafterLevel() => Atlas.LevelTable.TryGetValue(Crafter.Level, out int effectiveCrafterLevel) ? effectiveCrafterLevel : Crafter.Level;
 
         private static double QualityFromHqPercent(double hqPercent)
         {
@@ -300,61 +279,59 @@
     {
         public bool IsError { get; init; }
         
-        public int Step { get; set; }
-        public double Durability { get; set; }
-        public double CP { get; set; }
+        public byte Step { get; set; }
+        public short Durability { get; set; }
+        public int CP { get; set; }
         public double Quality { get; set; }
         public double Progress { get; set; }
         
         #region Buffs
-        public int InnerQuiet { get; set; }
+        public byte InnerQuiet { get; set; }
 
         public bool WasteNotActive => WasteNotDuration > 0;
-        public byte WasteNotDuration { get; set; }
+        private byte WasteNotDuration { get; set; }
         public bool WasteNotUsed { get; set; }
 
         public bool MuscleMemoryActive => MuscleMemoryDuration > 0;
         public byte MuscleMemoryDuration { get; set; }
 
         public bool VenerationActive => VenerationDuration > 0;
-        public byte VenerationDuration { get; set; }
+        private byte VenerationDuration { get; set; }
         public bool VenerationUsed { get; set; }
 
         public bool GreatStridesActive => GreatStridesDuration > 0;
         public byte GreatStridesDuration { get; set; }
 
         public bool InnovationActive => InnovationDuration > 0;
-        public byte InnovationDuration { get; set; }
+        private byte InnovationDuration { get; set; }
         public bool InnovationUsed { get; set; }
 
         public bool TrainedPerfectionActive { get; set; }
         public bool TrainedPerfectionUsed { get; set; }
 
         public bool ManipulationActive => ManipulationDuration > 0;
-        public byte ManipulationDuration { get; set; }
+        private byte ManipulationDuration { get; set; }
         public bool ManipulationUsed { get; set; }
         
-        public bool ObserveActive { get; set; }
+        public bool ObserveActive { get; private set; }
         public bool ObserveUsed { get; set; }
         
-        public bool BasicTouchActive { get; set; }
-        public bool StandardTouchActive { get; set; }
+        public bool BasicTouchActive { get; private set; }
+        public bool StandardTouchActive { get; private set; }
 
         public bool DecrementBuffs()
         {
-            if (WasteNotActive && --WasteNotDuration == 0 && !WasteNotUsed) return false;
-            if (VenerationActive && --VenerationDuration == 0 && !VenerationUsed) return false;
-            if (InnovationActive && --InnovationDuration == 0 && !InnovationUsed) return false;
-            if (ManipulationActive && --ManipulationDuration == 0 && !ManipulationUsed) return false;
-            
             if (MuscleMemoryActive && --MuscleMemoryDuration == 0) return false;
-            if (GreatStridesActive && --GreatStridesDuration == 0) return false;
-
+            if (VenerationActive && --VenerationDuration == 0 && !VenerationUsed) return false;
             if (ObserveActive)
             {
-                ObserveActive = false;
                 if (!ObserveUsed) return false;
+                else ObserveActive = false;
             }
+            if (GreatStridesActive && --GreatStridesDuration == 0) return false;
+            if (InnovationActive && --InnovationDuration == 0 && !InnovationUsed) return false;
+            if (WasteNotActive && --WasteNotDuration == 0 && !WasteNotUsed) return false;
+            if (ManipulationActive && --ManipulationDuration == 0 && !ManipulationUsed) return false;
 
             BasicTouchActive = false;
             StandardTouchActive = false;
@@ -414,7 +391,7 @@
         }
         #endregion
 
-        public LightState(double startQuality, double startCp, double startDurability)
+        public LightState(double startQuality, int startCp, byte startDurability)
         {
             IsError = false;
             

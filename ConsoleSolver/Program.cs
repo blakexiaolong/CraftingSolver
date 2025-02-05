@@ -148,6 +148,20 @@ Recipe
         QualityModifier = 1,
         IsExpert = false
     },
+    rareBlackStarEarrings = new()
+    {
+        Level = 100,
+        RLevel = 690,
+        Difficulty = 6600,
+        StartQuality = 0,
+        MaxQuality = 12000,
+        Durability = 80,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
+    },
     ArcheoBow = new()
     {
         Level = 100,
@@ -210,6 +224,14 @@ Crafter
         Level = 90,
         Actions = Atlas.Actions.DependableActions
     },
+    ashBuffed = new()
+    {
+        Craftsmanship = 4823,
+        Control = 4338,
+        CP = 658,
+        Level = 100,
+        Actions = Atlas.Actions.DependableActions
+    },
     dawntrail = new()
     {
         Craftsmanship = 4914,
@@ -226,7 +248,7 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrailBuffed, ArcheoPrecraft);
+LightSimulator sim = new(dawntrailBuffed, rareBlackStarEarrings);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

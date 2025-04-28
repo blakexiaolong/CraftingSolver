@@ -153,7 +153,7 @@ Recipe
         Level = 100,
         RLevel = 690,
         Difficulty = 6600,
-        StartQuality = 0,
+        StartQuality = 3016,
         MaxQuality = 12000,
         Durability = 80,
         ProgressDivider = 170,
@@ -180,50 +180,46 @@ Recipe
     {
         Level = 100,
         RLevel = 710,
-        Difficulty = 4125,
+        Difficulty = 4_125,
         StartQuality = 0,
-        MaxQuality = 12000,
+        MaxQuality = 12_000,
         Durability = 35,
         ProgressDivider = 170,
         QualityDivider = 150,
         ProgressModifier = 0.9,
         QualityModifier = 0.75,
         IsExpert = false
+    },
+    Everseeker = new()
+    {
+        Level = 100,
+        RLevel = 720,
+        Difficulty = 8050,
+        StartQuality = 0,
+        MaxQuality = 17600,
+        Durability = 70,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
+    },
+    IndurateSpring = new()
+    {
+        Level = 100,
+        RLevel = 702,
+        Difficulty = 9_900,
+        StartQuality = 0,
+        MaxQuality = 20_300,
+        Durability = 80,
+        ProgressDivider = 180,
+        QualityDivider = 180,
+        ProgressModifier = 1.0,
+        QualityModifier = 1.0,
+        IsExpert = false
     };
 
 Crafter
-    unbuffed = new()
-    {
-        Craftsmanship = 2737,
-        Control = 2810,
-        CP = 548,
-        Level = 80,
-        Actions = Atlas.Actions.DependableActions
-    },
-    chiliCrabCunning = new()
-    {
-        Craftsmanship = 2737,
-        Control = 2880,
-        CP = 636,
-        Level = 80,
-        Actions = Atlas.Actions.DependableActions
-    },
-    newUnbuffed = new()
-    {
-        Craftsmanship = 4132,
-        Control = 3890,
-        CP = 687,
-        Level = 90,
-        Actions = Atlas.Actions.DependableActions
-    },
-    newBuffed = new()
-    {
-        Craftsmanship = 4132,
-        Control = 3974,
-        CP = 687,
-        Level = 90,
-        Actions = Atlas.Actions.DependableActions
-    },
     ashBuffed = new()
     {
         Craftsmanship = 4823,
@@ -234,12 +230,13 @@ Crafter
     },
     dawntrail = new()
     {
-        Craftsmanship = 4914,
-        Control = 4837,
-        CP = 611,
+        Craftsmanship = 5419,
+        Control = 4990,
+        CP = 630,
         Level = 100,
         Actions = Atlas.Actions.DependableActions
-    },dawntrailBuffed = new()
+    },
+    dawntrailBuffed = new()
     {
         Craftsmanship = 5034,
         Control = 4837,
@@ -248,7 +245,7 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrailBuffed, rareBlackStarEarrings);
+LightSimulator sim = new(dawntrail, IndurateSpring);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

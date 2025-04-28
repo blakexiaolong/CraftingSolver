@@ -11,7 +11,7 @@ public class SawStepSolver
         MaxThreads = 20,
         MaxDepth = 30,
         StepForwardDepth = 6,
-        StepSize = 1_000;
+        StepSize = 500;
 
     private double _bestScore;
     private List<Action> _bestSolution;
@@ -22,6 +22,7 @@ public class SawStepSolver
     private readonly LoggingDelegate _logger;
     private readonly byte[] _actions;
     private readonly byte[][] _presolve;
+    private readonly Node _presolveRoot;
 
     private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
@@ -42,11 +43,13 @@ public class SawStepSolver
         
         Console.Write("Pre-solving");
         _presolve = Presolve(); // TODO: Maybe yank this out into a database somehow?
+        //_presolveRoot = GenerateTree(Presolve());
         GC.Collect();
 
         _logger($"\n[{DateTime.Now}] {_presolveFound:N0} expansions found (eliminated {(double)solverSpace - _presolveFound:N0} [{1 - _presolveFound / (double)solverSpace:P0}] possible expansions)");
     }
 
+    #region Presolving
     private byte[][] Presolve()
     {
         object presolveLock = new();
@@ -131,9 +134,9 @@ public class SawStepSolver
         int durability = 5, wn = 0, manip = 0;
         int lastWasteNot = -1, lastManip = -1, innovation = -1, veneration = -1;
         bool byregotsUsed = false;
-        for (int i = 0; i < path.Length; i++)
+        for (short i = 0; i < path.Length; i++)
         {
-            var action = Atlas.Actions.AllActions[path[i]];
+            Action action = Atlas.Actions.AllActions[path[i]];
             if (i > 0)
             {
                 if (Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i - 1]) return (false, i); // repeated buff
@@ -199,7 +202,38 @@ public class SawStepSolver
 
         return (true, 0);
     }
-
+    #endregion
+    
+    #region Tree Presolver
+    public struct Node
+    {
+        public byte Action { get; init; }
+        //public Node? Parent { get; init; }
+        public Node[]? Children { get; set; }
+    }
+    private Node GenerateTree(byte[][] presolveInfo) // TODO: fix this so it doesn't rely on the other presolving method?
+    {
+        Node root = new Node { Action = (byte)Atlas.Actions.ActionMap.DummyAction, /*Parent = null,*/ };
+        foreach (byte[] path in presolveInfo)
+        {
+            Node head = root;
+            foreach (byte action in path)
+            {
+                Node? n = head.Children?.FirstOrDefault(x => x.Action == action);
+                if (n is null)
+                {
+                    Node child = new Node { Action = action, /*Parent = head,*/ };
+                    head.Children = head.Children == null ? new[] { child } : head.Children.Concat(new[] { child }).ToArray();
+                    n = child;
+                }
+                head = n.Value;
+            }
+        }
+        return root;
+    }
+    #endregion
+    
+    #region Solving
     public async Task<List<Action>> Run()
     {
         _sw.Start();
@@ -262,7 +296,7 @@ public class SawStepSolver
             _totalSkipped += _skipped;
         } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth - StepForwardDepth);
 
-        _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] " +
+        _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds, true)}] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalFailures:N0} failures ({(double)_totalFailures / (_totalEvaluated + _totalSkipped):P0}) - " +
@@ -365,7 +399,9 @@ public class SawStepSolver
 
         return (progress * 90 + quality * 150 + steps * 9 + cp * 1) / 250; // max 100
     }
+    #endregion
 
+    #region Helpers
     private void ResetLocals(out double localBestScore, out IEnumerable<byte> localBestPath, out IEnumerable<byte> localBestExpansion)
     {
         localBestScore = double.MinValue;
@@ -428,4 +464,5 @@ public class SawStepSolver
         else if (minutes > 0) return $"{minutes}m{(seconds > 0 ? $"{seconds}s" : "")}";
         else return $"{seconds}s";
     }
+    #endregion
 }

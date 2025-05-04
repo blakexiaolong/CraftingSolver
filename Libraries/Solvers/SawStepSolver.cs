@@ -10,8 +10,8 @@ public class SawStepSolver
     private const int
         MaxThreads = 20,
         MaxDepth = 30,
-        StepForwardDepth = 6,
-        StepSize = 500;
+        StepForwardDepth = 3,
+        StepSize = 100;
 
     private double _bestScore;
     private List<Action> _bestSolution;
@@ -22,7 +22,69 @@ public class SawStepSolver
     private readonly LoggingDelegate _logger;
     private readonly byte[] _actions;
     private readonly byte[][] _presolve;
-    private readonly Node _presolveRoot;
+
+    private Dictionary<int, StateNode>[] _tree;
+    [Flags]
+    public enum StateNode
+    {
+        TrainedPerfection = 1<<0,
+        Groundwork = 1<<1,
+        PreparatoryTouch = 1<<2,
+        Veneration = 1<<3,
+        Innovation = 1<<4,
+        GreatStrides = 1<<5,
+        BasicSynth = 1<<6,
+        CarefulSynthesis = 1<<7,
+        BasicTouch = 1<<8,
+        StandardTouch = 1<<9,
+        AdvancedTouch = 1<<10,
+        RefinedTouch = 1<<11,
+        ByregotsBlessing = 1<<12,
+        ImmaculateMend = 1<<13,
+        MastersMend = 1<<14,
+        Manipulation = 1<<15,
+        WasteNot = 1<<16,
+        WasteNot2 = 1<<17,
+        PrudentTouch = 1<<18,
+        DelicateSynthesis = 1<<19,
+        TrainedFinesse = 1<<20,
+        PrudentSynthesis = 1<<21,
+        Observe = 1<<22,
+        
+        TrainedEye = 1<<23,
+        Reflect = 1<<24,
+        MuscleMemory = 1<<25,
+    }
+    private Dictionary<byte, int> actionToState = new()
+    {
+        { (int)Atlas.Actions.ActionMap.TrainedPerfection, (int)StateNode.TrainedPerfection },
+        { (int)Atlas.Actions.ActionMap.Groundwork, (int)StateNode.Groundwork },
+        { (int)Atlas.Actions.ActionMap.PreparatoryTouch, (int)StateNode.PreparatoryTouch },
+        { (int)Atlas.Actions.ActionMap.Veneration, (int)StateNode.Veneration },
+        { (int)Atlas.Actions.ActionMap.Innovation, (int)StateNode.Innovation },
+        { (int)Atlas.Actions.ActionMap.GreatStrides, (int)StateNode.GreatStrides },
+        { (int)Atlas.Actions.ActionMap.BasicSynth, (int)StateNode.BasicSynth },
+        { (int)Atlas.Actions.ActionMap.CarefulSynthesis, (int)StateNode.CarefulSynthesis },
+        { (int)Atlas.Actions.ActionMap.BasicTouch, (int)StateNode.BasicTouch },
+        { (int)Atlas.Actions.ActionMap.StandardTouch, (int)StateNode.StandardTouch },
+        { (int)Atlas.Actions.ActionMap.AdvancedTouch, (int)StateNode.AdvancedTouch },
+        { (int)Atlas.Actions.ActionMap.RefinedTouch, (int)StateNode.RefinedTouch },
+        { (int)Atlas.Actions.ActionMap.ByregotsBlessing, (int)StateNode.ByregotsBlessing },
+        { (int)Atlas.Actions.ActionMap.ImmaculateMend, (int)StateNode.ImmaculateMend },
+        { (int)Atlas.Actions.ActionMap.MastersMend, (int)StateNode.MastersMend },
+        { (int)Atlas.Actions.ActionMap.Manipulation, (int)StateNode.Manipulation },
+        { (int)Atlas.Actions.ActionMap.WasteNot, (int)StateNode.WasteNot },
+        { (int)Atlas.Actions.ActionMap.WasteNot2, (int)StateNode.WasteNot2 },
+        { (int)Atlas.Actions.ActionMap.PrudentTouch, (int)StateNode.PrudentTouch },
+        { (int)Atlas.Actions.ActionMap.DelicateSynthesis, (int)StateNode.DelicateSynthesis },
+        { (int)Atlas.Actions.ActionMap.TrainedFinesse, (int)StateNode.TrainedFinesse },
+        { (int)Atlas.Actions.ActionMap.PrudentSynthesis, (int)StateNode.PrudentSynthesis },
+        { (int)Atlas.Actions.ActionMap.Observe, (int)StateNode.Observe },
+        { (int)Atlas.Actions.ActionMap.TrainedEye, (int)StateNode.TrainedEye },
+        { (int)Atlas.Actions.ActionMap.Reflect, (int)StateNode.Reflect },
+        { (int)Atlas.Actions.ActionMap.MuscleMemory, (int)StateNode.MuscleMemory },
+    };
+    private Dictionary<int, byte> stateToAction;
 
     private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
@@ -41,9 +103,11 @@ public class SawStepSolver
         BigInteger solverSpace = BigInteger.Pow(_actions.Length, StepForwardDepth);
         _logger($"[{DateTime.Now}] Game space is {gameSpace:N0} nodes, solver space [{StepForwardDepth}] is {solverSpace:N0} nodes (~1 / {gameSpace / solverSpace:N0})");
         
+        
         Console.Write("Pre-solving");
-        _presolve = Presolve(); // TODO: Maybe yank this out into a database somehow?
-        //_presolveRoot = GenerateTree(Presolve());
+        stateToAction = actionToState.ToDictionary(x => x.Value, x => x.Key);
+        _presolve = Presolve(); // TODO: Make it so the tree is just generated
+        GenerateTree2();
         GC.Collect();
 
         _logger($"\n[{DateTime.Now}] {_presolveFound:N0} expansions found (eliminated {(double)solverSpace - _presolveFound:N0} [{1 - _presolveFound / (double)solverSpace:P0}] possible expansions)");
@@ -204,32 +268,56 @@ public class SawStepSolver
     }
     #endregion
     
-    #region Tree Presolver
-    public struct Node
+    #region Tree Presolver 2
+    private void GenerateTree2()
     {
-        public byte Action { get; init; }
-        //public Node? Parent { get; init; }
-        public Node[]? Children { get; set; }
-    }
-    private Node GenerateTree(byte[][] presolveInfo) // TODO: fix this so it doesn't rely on the other presolving method?
-    {
-        Node root = new Node { Action = (byte)Atlas.Actions.ActionMap.DummyAction, /*Parent = null,*/ };
-        foreach (byte[] path in presolveInfo)
+        Stopwatch st = new Stopwatch();
+        st.Start();
+
+        _tree = new Dictionary<int, StateNode>[StepForwardDepth];
+        for (int i = 0; i < _tree.Length; i++) _tree[i] = new Dictionary<int, StateNode>();
+
+        // build the thing
+        foreach (var path in _presolve)
         {
-            Node head = root;
-            foreach (byte action in path)
+            int parentIx = 0;
+            for (int i = 0; i < path.Length; i++)
             {
-                Node? n = head.Children?.FirstOrDefault(x => x.Action == action);
-                if (n is null)
+                if (i > 0)
                 {
-                    Node child = new Node { Action = action, /*Parent = head,*/ };
-                    head.Children = head.Children == null ? new[] { child } : head.Children.Concat(new[] { child }).ToArray();
-                    n = child;
+                    parentIx = parentIx * 26 + path[i - 1];
                 }
-                head = n.Value;
+                if (!_tree[i].ContainsKey(parentIx)) _tree[i][parentIx] = 0;
+                _tree[i][parentIx] |= (StateNode)actionToState[path[i]];
             }
         }
-        return root;
+        Console.WriteLine($"Done building {st.ElapsedMilliseconds/1000}s");
+        st.Restart();
+
+        // byte[][] presolveAudit = new byte[_presolve.Length][];
+        // int ix = 0;
+        // // then re-create the list of arrays to make sure this makes sense
+        // foreach (var kvp in _tree[^1])
+        // {
+        //     int parentIx = kvp.Key;
+        //     byte[] path = new byte[StepForwardDepth];
+        //     for (int i = StepForwardDepth - 2; i >= 0; i--)
+        //     {
+        //         path[i] = (byte)(parentIx % 26);
+        //         parentIx = (int)Math.Truncate(Math.Floor(parentIx / 26M));
+        //     }
+        //
+        //     for (int i = 0; i < 26; i++)
+        //     {
+        //         if ((int)(kvp.Value & (StateNode)(1 << i)) != 0)
+        //         {
+        //             presolveAudit[ix] = path.ToArray();
+        //             presolveAudit[ix++][^1] = stateToAction[1 << i];
+        //         }
+        //     }
+        // }
+        // Console.WriteLine($"Done rebuilding {st.ElapsedMilliseconds/1000}s");
+        // Console.WriteLine(_tree[^1].Keys.Max().ToString("N0"));
     }
     #endregion
     

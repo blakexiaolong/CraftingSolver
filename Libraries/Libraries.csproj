@@ -1,5 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -13,5 +12,10 @@
     <Compile Remove="SimulatorStep.cs" />
     <Compile Remove="State.cs" />
   </ItemGroup>
-
+  
+  <ItemGroup>
+    <None Update="app.config">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
 </Project>

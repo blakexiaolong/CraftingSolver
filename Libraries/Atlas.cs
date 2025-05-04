@@ -27,39 +27,15 @@
                 Manipulation,
                 WasteNot,
                 WasteNot2,
-                PreciseTouch,
                 PrudentTouch,
                 DelicateSynthesis,
                 TrainedFinesse,
                 PrudentSynthesis,
-                TricksOfTheTrade,
-                Observe,
-                DummyAction,
-                InnerQuiet
+                Observe
             }
 
             public static readonly Dictionary<byte, Action> AllActions = new()
             {
-                {
-                    (int)ActionMap.DummyAction, new()
-                    {
-                        ID = (int)ActionMap.DummyAction,
-                        ShortName = "dummyAction",
-                        Name = "______________",
-                        DurabilityCost = 0,
-                        CPCost = 0,
-                        SuccessProbability = 1.0,
-                        QualityIncreaseMultiplier = 0.0,
-                        ProgressIncreaseMultiplier = 0.0,
-                        ActionType = ActionType.Immediate,
-                        ActiveTurns = 1,
-                        Class = "All",
-                        Level = 1,
-                        OnGood = false,
-                        OnExcellent = false,
-                        OnPoor = false
-                    }
-                },
                 {
                     (int)ActionMap.Observe, new()
                     {
@@ -201,46 +177,6 @@
                     }
                 },
                 {
-                    (int)ActionMap.TricksOfTheTrade, new()
-                    {
-                        ID = (int)ActionMap.TricksOfTheTrade,
-                        ShortName = "tricksOfTheTrade",
-                        Name = "Tricks of the Trade",
-                        DurabilityCost = 0,
-                        CPCost = 0,
-                        SuccessProbability = 1.0,
-                        QualityIncreaseMultiplier = 0.0,
-                        ProgressIncreaseMultiplier = 0.0,
-                        ActionType = ActionType.Immediate,
-                        ActiveTurns = 1,
-                        Class = "All",
-                        Level = 13,
-                        OnGood = true,
-                        OnExcellent = true,
-                        OnPoor = false
-                    }
-                },
-                {
-                    (int)ActionMap.InnerQuiet, new()
-                    {
-                        ID = (int)ActionMap.InnerQuiet,
-                        ShortName = "innerQuiet",
-                        Name = "Inner Quiet",
-                        DurabilityCost = 0,
-                        CPCost = 0,
-                        SuccessProbability = 1.0,
-                        QualityIncreaseMultiplier = 0.0,
-                        ProgressIncreaseMultiplier = 0.0,
-                        ActionType = ActionType.CountUp,
-                        ActiveTurns = 1,
-                        Class = "All",
-                        Level = 11,
-                        OnGood = false,
-                        OnExcellent = false,
-                        OnPoor = false
-                    }
-                },
-                {
                     (int)ActionMap.Manipulation, new()
                     {
                         ID = (int)ActionMap.Manipulation,
@@ -357,26 +293,6 @@
                         Level = 21,
                         OnGood = false,
                         OnExcellent = false,
-                        OnPoor = false
-                    }
-                },
-                {
-                    (int)ActionMap.PreciseTouch, new()
-                    {
-                        ID = (int)ActionMap.PreciseTouch,
-                        ShortName = "preciseTouch",
-                        Name = "Precise Touch",
-                        DurabilityCost = 10,
-                        CPCost = 18,
-                        SuccessProbability = 1.0,
-                        QualityIncreaseMultiplier = 1.5,
-                        ProgressIncreaseMultiplier = 0.0,
-                        ActionType = ActionType.Immediate,
-                        ActiveTurns = 1,
-                        Class = "All",
-                        Level = 53,
-                        OnGood = true,
-                        OnExcellent = true,
                         OnPoor = false
                     }
                 },

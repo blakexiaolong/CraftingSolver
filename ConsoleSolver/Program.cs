@@ -1,5 +1,6 @@
 ﻿using Libraries;
 using Libraries.Solvers;
+using System.Configuration;
 
 Recipe
     newNeoIshgardian = new()
@@ -162,7 +163,7 @@ Recipe
         QualityModifier = 0.75,
         IsExpert = false
     },
-    ArcheoBow = new()
+    archeoBow = new()
     {
         Level = 100,
         RLevel = 710,
@@ -176,7 +177,7 @@ Recipe
         QualityModifier = 0.75,
         IsExpert = false
     },
-    ArcheoPrecraft = new()
+    archeoPrecraft = new()
     {
         Level = 100,
         RLevel = 710,
@@ -190,7 +191,7 @@ Recipe
         QualityModifier = 0.75,
         IsExpert = false
     },
-    Everseeker = new()
+    everseeker = new()
     {
         Level = 100,
         RLevel = 720,
@@ -204,7 +205,7 @@ Recipe
         QualityModifier = 0.75,
         IsExpert = false
     },
-    IndurateSpring = new()
+    indurateSpring = new()
     {
         Level = 100,
         RLevel = 702,
@@ -238,14 +239,14 @@ Crafter
     },
     dawntrailBuffed = new()
     {
-        Craftsmanship = 5034,
-        Control = 4837,
-        CP = 714,
+        Craftsmanship = 5419+120,
+        Control = 4990,
+        CP = 630+109,
         Level = 100,
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrail, IndurateSpring);
+LightSimulator sim = new(dawntrail, rareBlackStarEarrings);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

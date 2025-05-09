@@ -44,6 +44,16 @@
             }
             return state;
         }
+        public LightState SimulateToFailure(byte[] actions, int take, LightState startState)
+        {
+            LightState state = startState;
+            for (int i = 0; i < take - 1; i++)
+            {
+                LightState prevState = state;
+                if (!Simulate(actions[i], ref state)) return prevState;
+            }
+            return state;
+        }
         public LightState Simulate(IEnumerable<byte> actions, LightState startState)
         {
             LightState state = startState;
@@ -68,10 +78,14 @@
             }
             return state;
         }
-        public LightState Simulate(byte action)
+        public LightState Simulate(byte[] actions, int startIx)
         {
             LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            if (!Simulate(action, ref state)) return new LightState { IsError = true };
+            for (int i = startIx; i < actions.Length; i++)
+            {
+                if (!Simulate(actions[i], ref state))
+                    return new LightState { IsError = true };
+            }
             return state;
         }
         #endregion

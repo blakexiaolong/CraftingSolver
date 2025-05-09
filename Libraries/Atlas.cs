@@ -12,9 +12,6 @@
                 Veneration,
                 Innovation,
                 GreatStrides,
-                TrainedEye,
-                Reflect,
-                MuscleMemory,
                 BasicSynth,
                 CarefulSynthesis,
                 BasicTouch,
@@ -31,7 +28,12 @@
                 DelicateSynthesis,
                 TrainedFinesse,
                 PrudentSynthesis,
-                Observe
+                Observe,
+                
+                // these actions aren't included in the presolver
+                TrainedEye,
+                Reflect,
+                MuscleMemory,
             }
 
             public static readonly Dictionary<byte, Action> AllActions = new()

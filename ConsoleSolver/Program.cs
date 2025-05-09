@@ -1,6 +1,5 @@
 ﻿using Libraries;
 using Libraries.Solvers;
-using System.Configuration;
 
 Recipe
     newNeoIshgardian = new()
@@ -191,6 +190,20 @@ Recipe
         QualityModifier = 0.75,
         IsExpert = false
     },
+    everseekerPrecraft = new()
+    {
+        Level = 100,
+        RLevel = 710,
+        Difficulty = 4125,
+        StartQuality = 0,
+        MaxQuality = 12000,
+        Durability = 35,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
+    },
     everseeker = new()
     {
         Level = 100,
@@ -246,7 +259,7 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrail, rareBlackStarEarrings);
+LightSimulator sim = new(dawntrail, everseeker);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

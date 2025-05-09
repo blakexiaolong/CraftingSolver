@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
@@ -10,7 +11,7 @@ public class SawStepSolver
     private const int
         MaxThreads = 20,
         MaxDepth = 30,
-        StepForwardDepth = 3,
+        StepForwardDepth = 5,
         StepSize = 100;
 
     private double _bestScore;
@@ -21,70 +22,69 @@ public class SawStepSolver
     private readonly LightSimulator _sim;
     private readonly LoggingDelegate _logger;
     private readonly byte[] _actions;
-    private readonly byte[][] _presolve;
 
-    private Dictionary<int, StateNode>[] _tree;
-    [Flags]
-    public enum StateNode
+    private const int TreeWidth = 23;
+    private readonly StateNode[] _tree;
+    private struct StateNode
     {
-        TrainedPerfection = 1<<0,
-        Groundwork = 1<<1,
-        PreparatoryTouch = 1<<2,
-        Veneration = 1<<3,
-        Innovation = 1<<4,
-        GreatStrides = 1<<5,
-        BasicSynth = 1<<6,
-        CarefulSynthesis = 1<<7,
-        BasicTouch = 1<<8,
-        StandardTouch = 1<<9,
-        AdvancedTouch = 1<<10,
-        RefinedTouch = 1<<11,
-        ByregotsBlessing = 1<<12,
-        ImmaculateMend = 1<<13,
-        MastersMend = 1<<14,
-        Manipulation = 1<<15,
-        WasteNot = 1<<16,
-        WasteNot2 = 1<<17,
-        PrudentTouch = 1<<18,
-        DelicateSynthesis = 1<<19,
-        TrainedFinesse = 1<<20,
-        PrudentSynthesis = 1<<21,
-        Observe = 1<<22,
+        public uint Id;
+        public StateActions Actions;
         
-        TrainedEye = 1<<23,
-        Reflect = 1<<24,
-        MuscleMemory = 1<<25,
+        [Flags]
+        public enum StateActions
+        {
+            TrainedPerfection = 1<<0,
+            Groundwork = 1<<1,
+            PreparatoryTouch = 1<<2,
+            Veneration = 1<<3,
+            Innovation = 1<<4,
+            GreatStrides = 1<<5,
+            BasicSynth = 1<<6,
+            CarefulSynthesis = 1<<7,
+            BasicTouch = 1<<8,
+            StandardTouch = 1<<9,
+            AdvancedTouch = 1<<10,
+            RefinedTouch = 1<<11,
+            ByregotsBlessing = 1<<12,
+            ImmaculateMend = 1<<13,
+            MastersMend = 1<<14,
+            Manipulation = 1<<15,
+            WasteNot = 1<<16,
+            WasteNot2 = 1<<17,
+            PrudentTouch = 1<<18,
+            DelicateSynthesis = 1<<19,
+            TrainedFinesse = 1<<20,
+            PrudentSynthesis = 1<<21,
+            Observe = 1<<22,
+        }
     }
-    private Dictionary<byte, int> actionToState = new()
+    private readonly Dictionary<byte, int> _actionToState = new()
     {
-        { (int)Atlas.Actions.ActionMap.TrainedPerfection, (int)StateNode.TrainedPerfection },
-        { (int)Atlas.Actions.ActionMap.Groundwork, (int)StateNode.Groundwork },
-        { (int)Atlas.Actions.ActionMap.PreparatoryTouch, (int)StateNode.PreparatoryTouch },
-        { (int)Atlas.Actions.ActionMap.Veneration, (int)StateNode.Veneration },
-        { (int)Atlas.Actions.ActionMap.Innovation, (int)StateNode.Innovation },
-        { (int)Atlas.Actions.ActionMap.GreatStrides, (int)StateNode.GreatStrides },
-        { (int)Atlas.Actions.ActionMap.BasicSynth, (int)StateNode.BasicSynth },
-        { (int)Atlas.Actions.ActionMap.CarefulSynthesis, (int)StateNode.CarefulSynthesis },
-        { (int)Atlas.Actions.ActionMap.BasicTouch, (int)StateNode.BasicTouch },
-        { (int)Atlas.Actions.ActionMap.StandardTouch, (int)StateNode.StandardTouch },
-        { (int)Atlas.Actions.ActionMap.AdvancedTouch, (int)StateNode.AdvancedTouch },
-        { (int)Atlas.Actions.ActionMap.RefinedTouch, (int)StateNode.RefinedTouch },
-        { (int)Atlas.Actions.ActionMap.ByregotsBlessing, (int)StateNode.ByregotsBlessing },
-        { (int)Atlas.Actions.ActionMap.ImmaculateMend, (int)StateNode.ImmaculateMend },
-        { (int)Atlas.Actions.ActionMap.MastersMend, (int)StateNode.MastersMend },
-        { (int)Atlas.Actions.ActionMap.Manipulation, (int)StateNode.Manipulation },
-        { (int)Atlas.Actions.ActionMap.WasteNot, (int)StateNode.WasteNot },
-        { (int)Atlas.Actions.ActionMap.WasteNot2, (int)StateNode.WasteNot2 },
-        { (int)Atlas.Actions.ActionMap.PrudentTouch, (int)StateNode.PrudentTouch },
-        { (int)Atlas.Actions.ActionMap.DelicateSynthesis, (int)StateNode.DelicateSynthesis },
-        { (int)Atlas.Actions.ActionMap.TrainedFinesse, (int)StateNode.TrainedFinesse },
-        { (int)Atlas.Actions.ActionMap.PrudentSynthesis, (int)StateNode.PrudentSynthesis },
-        { (int)Atlas.Actions.ActionMap.Observe, (int)StateNode.Observe },
-        { (int)Atlas.Actions.ActionMap.TrainedEye, (int)StateNode.TrainedEye },
-        { (int)Atlas.Actions.ActionMap.Reflect, (int)StateNode.Reflect },
-        { (int)Atlas.Actions.ActionMap.MuscleMemory, (int)StateNode.MuscleMemory },
+        { (int)Atlas.Actions.ActionMap.TrainedPerfection, (int)StateNode.StateActions.TrainedPerfection },
+        { (int)Atlas.Actions.ActionMap.Groundwork, (int)StateNode.StateActions.Groundwork },
+        { (int)Atlas.Actions.ActionMap.PreparatoryTouch, (int)StateNode.StateActions.PreparatoryTouch },
+        { (int)Atlas.Actions.ActionMap.Veneration, (int)StateNode.StateActions.Veneration },
+        { (int)Atlas.Actions.ActionMap.Innovation, (int)StateNode.StateActions.Innovation },
+        { (int)Atlas.Actions.ActionMap.GreatStrides, (int)StateNode.StateActions.GreatStrides },
+        { (int)Atlas.Actions.ActionMap.BasicSynth, (int)StateNode.StateActions.BasicSynth },
+        { (int)Atlas.Actions.ActionMap.CarefulSynthesis, (int)StateNode.StateActions.CarefulSynthesis },
+        { (int)Atlas.Actions.ActionMap.BasicTouch, (int)StateNode.StateActions.BasicTouch },
+        { (int)Atlas.Actions.ActionMap.StandardTouch, (int)StateNode.StateActions.StandardTouch },
+        { (int)Atlas.Actions.ActionMap.AdvancedTouch, (int)StateNode.StateActions.AdvancedTouch },
+        { (int)Atlas.Actions.ActionMap.RefinedTouch, (int)StateNode.StateActions.RefinedTouch },
+        { (int)Atlas.Actions.ActionMap.ByregotsBlessing, (int)StateNode.StateActions.ByregotsBlessing },
+        { (int)Atlas.Actions.ActionMap.ImmaculateMend, (int)StateNode.StateActions.ImmaculateMend },
+        { (int)Atlas.Actions.ActionMap.MastersMend, (int)StateNode.StateActions.MastersMend },
+        { (int)Atlas.Actions.ActionMap.Manipulation, (int)StateNode.StateActions.Manipulation },
+        { (int)Atlas.Actions.ActionMap.WasteNot, (int)StateNode.StateActions.WasteNot },
+        { (int)Atlas.Actions.ActionMap.WasteNot2, (int)StateNode.StateActions.WasteNot2 },
+        { (int)Atlas.Actions.ActionMap.PrudentTouch, (int)StateNode.StateActions.PrudentTouch },
+        { (int)Atlas.Actions.ActionMap.DelicateSynthesis, (int)StateNode.StateActions.DelicateSynthesis },
+        { (int)Atlas.Actions.ActionMap.TrainedFinesse, (int)StateNode.StateActions.TrainedFinesse },
+        { (int)Atlas.Actions.ActionMap.PrudentSynthesis, (int)StateNode.StateActions.PrudentSynthesis },
+        { (int)Atlas.Actions.ActionMap.Observe, (int)StateNode.StateActions.Observe },
     };
-    private Dictionary<int, byte> stateToAction;
+    private readonly Dictionary<int, byte> _stateToAction;
 
     private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
@@ -103,37 +103,37 @@ public class SawStepSolver
         BigInteger solverSpace = BigInteger.Pow(_actions.Length, StepForwardDepth);
         _logger($"[{DateTime.Now}] Game space is {gameSpace:N0} nodes, solver space [{StepForwardDepth}] is {solverSpace:N0} nodes (~1 / {gameSpace / solverSpace:N0})");
         
-        
         Console.Write("Pre-solving");
-        stateToAction = actionToState.ToDictionary(x => x.Value, x => x.Key);
-        _presolve = Presolve(); // TODO: Make it so the tree is just generated
-        GenerateTree2();
-        GC.Collect();
+        _stateToAction = _actionToState.ToDictionary(x => x.Value, x => x.Key);
+        _tree = Presolve();
 
         _logger($"\n[{DateTime.Now}] {_presolveFound:N0} expansions found (eliminated {(double)solverSpace - _presolveFound:N0} [{1 - _presolveFound / (double)solverSpace:P0}] possible expansions)");
     }
 
     #region Presolving
-    private byte[][] Presolve()
+    private StateNode[] Presolve()
     {
         object presolveLock = new();
-        List<byte[]> allowedPaths = new();
 
         long skipped = 0;
         byte[] actions = _sim.Crafter.Actions.Where(x => !Atlas.Actions.FirstRoundActions.Contains(x)).ToArray();
+        List<Dictionary<uint, StateNode>> allowedNodes = new List<Dictionary<uint, StateNode>>(actions.Length);
 
         List<Thread> presolverThreads = new();
-        foreach (var t in actions)
+        for (int i = 0; i < actions.Length; i++)
         {
+            int ix = i;
             byte[] path = new byte[StepForwardDepth];
-            path[0] = t;
-            for (int j = 1; j < path.Length; j++) path[j] = actions[0];
+            path[0] = actions[i];
+            for (int j = 1; j < path.Length; j++)
+                path[j] = actions[0];
+            allowedNodes.Insert(i, new Dictionary<uint, StateNode>());
 
             presolverThreads.Add(new Thread(() =>
             {
-                List<byte[]> ret = new();
+                Dictionary<uint, StateNode> dict = allowedNodes[ix];
                 int skipIx = -1, skipKey = 0;
-                long f = 0;
+                long foundPaths = 0;
 
                 do
                 {
@@ -143,8 +143,14 @@ public class SawStepSolver
                     var audit = AuditPresolve(path);
                     if (audit.Item1)
                     {
-                        f += 1;
-                        ret.Add(path.ToArray());
+                        foundPaths += 1;
+                        uint stateIx = 0;
+                        for (int j = 0; j < StepForwardDepth - 1; j++)
+                            stateIx = stateIx * TreeWidth + path[j];
+                        if (!dict.ContainsKey(stateIx)) dict[stateIx] = new StateNode() { Id =  stateIx, Actions = 0 }; // TODO: get rid of dictionary resizing, object allocations
+                        var node = dict[stateIx];
+                        node.Actions |= (StateNode.StateActions)_actionToState[path[StepForwardDepth - 1]];
+                        dict[stateIx] = node;
                     }
                     else
                     {
@@ -155,18 +161,14 @@ public class SawStepSolver
                 } while (PresolveIterator(ref path, actions));
 
                 Console.Write(".");
-                lock (presolveLock)
-                {
-                    _presolveFound += f;
-                    allowedPaths.AddRange(ret);
-                }
+                lock (presolveLock) { _presolveFound += foundPaths; }
             }));
         }
         foreach (var t in presolverThreads) t.Start();
         foreach (var t in presolverThreads) t.Join();
 
         Console.WriteLine($"\nPresolved - {skipped:N0} elements were proactively skipped");
-        return allowedPaths.ToArray();
+        return allowedNodes.SelectMany(x => x.Values).OrderBy(x => x.Id).ToArray(); // TODO: this causes a bunch of memory ballooning
     }
     private bool PresolveIterator(ref byte[] path, byte[] allowedActions, int ix = StepForwardDepth - 1)
     {
@@ -197,7 +199,7 @@ public class SawStepSolver
     {
         int durability = 5, wn = 0, manip = 0;
         int lastWasteNot = -1, lastManip = -1, innovation = -1, veneration = -1;
-        bool byregotsUsed = false;
+        bool byregotsUsed = false, trainedPerfectionUsed = true;
         for (short i = 0; i < path.Length; i++)
         {
             Action action = Atlas.Actions.AllActions[path[i]];
@@ -209,6 +211,11 @@ public class SawStepSolver
                 {
                     if (byregotsUsed) return (false, i); // not a good idea
                     byregotsUsed = true;
+                }
+                if (path[i] == (byte)Atlas.Actions.ActionMap.TrainedPerfection)
+                {
+                    if (trainedPerfectionUsed) return (false, i); // can't happen
+                    trainedPerfectionUsed = true;
                 }
             }
             if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return (false, i); // first round actions aren't allowed
@@ -268,62 +275,10 @@ public class SawStepSolver
     }
     #endregion
     
-    #region Tree Presolver 2
-    private void GenerateTree2()
-    {
-        Stopwatch st = new Stopwatch();
-        st.Start();
-
-        _tree = new Dictionary<int, StateNode>[StepForwardDepth];
-        for (int i = 0; i < _tree.Length; i++) _tree[i] = new Dictionary<int, StateNode>();
-
-        // build the thing
-        foreach (var path in _presolve)
-        {
-            int parentIx = 0;
-            for (int i = 0; i < path.Length; i++)
-            {
-                if (i > 0)
-                {
-                    parentIx = parentIx * 26 + path[i - 1];
-                }
-                if (!_tree[i].ContainsKey(parentIx)) _tree[i][parentIx] = 0;
-                _tree[i][parentIx] |= (StateNode)actionToState[path[i]];
-            }
-        }
-        Console.WriteLine($"Done building {st.ElapsedMilliseconds/1000}s");
-        st.Restart();
-
-        // byte[][] presolveAudit = new byte[_presolve.Length][];
-        // int ix = 0;
-        // // then re-create the list of arrays to make sure this makes sense
-        // foreach (var kvp in _tree[^1])
-        // {
-        //     int parentIx = kvp.Key;
-        //     byte[] path = new byte[StepForwardDepth];
-        //     for (int i = StepForwardDepth - 2; i >= 0; i--)
-        //     {
-        //         path[i] = (byte)(parentIx % 26);
-        //         parentIx = (int)Math.Truncate(Math.Floor(parentIx / 26M));
-        //     }
-        //
-        //     for (int i = 0; i < 26; i++)
-        //     {
-        //         if ((int)(kvp.Value & (StateNode)(1 << i)) != 0)
-        //         {
-        //             presolveAudit[ix] = path.ToArray();
-        //             presolveAudit[ix++][^1] = stateToAction[1 << i];
-        //         }
-        //     }
-        // }
-        // Console.WriteLine($"Done rebuilding {st.ElapsedMilliseconds/1000}s");
-        // Console.WriteLine(_tree[^1].Keys.Max().ToString("N0"));
-    }
-    #endregion
-    
     #region Solving
     public async Task<List<Action>> Run()
     {
+        GC.Collect();
         _sw.Start();
 
         int step = 0;
@@ -404,8 +359,7 @@ public class SawStepSolver
         #region Handle Previous Expansion
         if (prevStep.Item3.Any())
         {
-            List<byte> prevExpansion = prevStep.Item3.Skip(1).ToList();
-            LightState expansionState = _sim.Simulate(prevExpansion, prevState);
+            LightState expansionState = _sim.Simulate(prevStep.Item3, 1);
             foreach (var action in _actions)
             {
                 LightState s = _sim.Simulate(action, expansionState);
@@ -417,7 +371,9 @@ public class SawStepSolver
                 }
 
                 double score = Score(s, action);
-                byte[] batch = prevExpansion.Concat(new[] { action }).ToArray();
+                if (score < localBestScore) continue;
+                
+                byte[] batch = prevStep.Item3.Skip(1).Concat(new[] { action }).ToArray();
                 ConfirmHighScore(score, s.Success(_sim), prevStep, batch);
                 PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, batch);
             }
@@ -426,12 +382,13 @@ public class SawStepSolver
 
         #region Handle New Expansions
         byte prevKey = byte.MaxValue;
-        int skipIx = -1; byte skipKey = 0;
-        foreach (var preSolution in _presolve)
+        long skipIx = -1;
+        ArrayPool<byte> pool = ArrayPool<byte>.Create();
+        foreach (var kvp in _tree)
         {
             switch (skipIx)
             {
-                case >= 0 when preSolution[skipIx] == skipKey:
+                case >= 0 when skipIx >= kvp.Id:
                     _skipped += 1;
                     continue; // fast-forward
                 case >= 0:
@@ -439,29 +396,59 @@ public class SawStepSolver
                     break; // record scratch
             }
             
-            byte key = preSolution[0];
+            uint parentIx = kvp.Id;
+            byte[] path = pool.Rent(StepForwardDepth);
+            for (int i = StepForwardDepth - 2; i >= 0; i--)
+            {
+                path[i] = (byte)(parentIx % TreeWidth);
+                parentIx = (uint)Math.Truncate(Math.Floor(parentIx / (decimal)TreeWidth));
+            }
+
+            byte key = path[0];
             if (prevKey != key)
             {
-                if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count+1).ToList(),  localBestExpansion.ToArray()));
+                if (localBestScore >= 0)
+                    forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count + 1).ToList(), localBestExpansion.ToArray()));
                 ResetLocals(out localBestScore, out localBestPath, out localBestExpansion);
                 prevKey = key;
             }
 
-            LightState state = _sim.SimulateToFailure(preSolution, prevState);
+            LightState parentState = _sim.SimulateToFailure(path, StepForwardDepth - 1, prevState);
             _evaluated++;
-            int stepsTaken = state.Step - prevState.Step;
-            if (stepsTaken < StepForwardDepth)
+            double score = Score(parentState, key);
+            if (score > localBestScore)
             {
+                ConfirmHighScore(score, parentState.Success(_sim), prevStep, path);
+                PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, path);
+            }
+            int stepsTaken = parentState.Step - prevState.Step;
+            if (stepsTaken <= StepForwardDepth - 2)
+            {
+                long mod = (int)Math.Pow(TreeWidth, StepForwardDepth - stepsTaken - 2);
+                skipIx = kvp.Id - (kvp.Id % mod) + (mod - 1);
+                        
                 _failures++;
-                skipIx = stepsTaken;
-                skipKey = preSolution[stepsTaken];
                 continue;
             }
-            double score = Score(state, key);
+            
+            for (int i = 0; i < TreeWidth; i++)
+            {
+                if ((int)(kvp.Actions & (StateNode.StateActions)(1 << i)) != 0)
+                {
+                    path[StepForwardDepth - 1] = _stateToAction[1 << i];
+                    LightState state = _sim.Simulate(path[StepForwardDepth-1], parentState);
+                    _evaluated++;
+                    if (state.Step == parentState.Step) { _failures++; continue; }
 
-            if (score <= localBestScore) continue;
-            ConfirmHighScore(score, state.Success(_sim), prevStep, preSolution);
-            PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, preSolution);
+                    score = Score(state, key);
+                    if (score > localBestScore)
+                    {
+                        ConfirmHighScore(score, state.Success(_sim), prevStep, path);
+                        PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, path);
+                    }
+                }
+            }
+            pool.Return(path, true);
         }
 
         if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count + 1).ToList(), localBestExpansion.ToArray()));
@@ -482,6 +469,7 @@ public class SawStepSolver
         double quality = Math.Min(maxQuality, state.Quality) / maxQuality;
         if (firstAction == (int)Atlas.Actions.ActionMap.TrainedEye) quality = 1;
 
+        // ReSharper disable once PossibleLossOfFraction
         double cp = state.CP / _sim.Crafter.CP;
         double steps = 1 - state.Step / 100D;
 
@@ -515,8 +503,8 @@ public class SawStepSolver
             byte[] path = prevStep.Item2.Concat(batch).ToArray();
 
             _bestScore = score;
-            _bestSolution = path.Select(x => Atlas.Actions.AllActions[x]).ToList();
             LightState s = _sim.SimulateToFailure(path);
+            _bestSolution = path.Take(s.Step).Select(x => Atlas.Actions.AllActions[x]).ToList();
             _logger($"\t{_bestScore:P} ({s.Quality:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
         }
     }

@@ -259,7 +259,7 @@ Crafter
         Actions = Atlas.Actions.DependableActions
     };
 
-LightSimulator sim = new(dawntrail, everseeker);
+LightSimulator sim = new(dawntrailBuffed, indurateSpring);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

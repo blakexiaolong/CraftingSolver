@@ -47,7 +47,7 @@
         public LightState SimulateToFailure(byte[] actions, int take, LightState startState)
         {
             LightState state = startState;
-            for (int i = 0; i < take - 1; i++)
+            for (int i = 0; i < take; i++)
             {
                 LightState prevState = state;
                 if (!Simulate(actions[i], ref state)) return prevState;
@@ -109,11 +109,9 @@
             #endregion
 
             #region Multipliers
-            double progressIncreaseMultiplier = 0;
             if (a.ProgressIncreaseMultiplier > 0)
             {
-
-                progressIncreaseMultiplier = 1;
+                double progressIncreaseMultiplier = 1;
                 if (a.ProgressIncreaseMultiplier > 0 && state.MuscleMemoryActive)
                 {
                     progressIncreaseMultiplier += 1;
@@ -130,13 +128,13 @@
                 {
                     progressIncreaseMultiplier *= 0.5;
                 }
+                
+                state.Progress += Math.Floor(BaseProgressIncrease * a.ProgressIncreaseMultiplier * progressIncreaseMultiplier);
             }
 
-            double qualityIncreaseMultiplier = 0;
             if (a.QualityIncreaseMultiplier > 0)
             {
-
-                qualityIncreaseMultiplier = 1;
+                double qualityIncreaseMultiplier = 1;
                 if (state.GreatStridesActive)
                 {
                     qualityIncreaseMultiplier += 1;
@@ -162,13 +160,12 @@
                 }
 
                 qualityIncreaseMultiplier *= 1 + (0.1 * state.InnerQuiet);
+                state.Quality += Math.Floor(action == (int)Atlas.Actions.ActionMap.TrainedEye ? Recipe.MaxQuality : BaseQualityIncrease * a.QualityIncreaseMultiplier * qualityIncreaseMultiplier);
             }
             #endregion
 
             short cpCost = a.CPCost;
-            state.Progress += Math.Floor(BaseProgressIncrease * a.ProgressIncreaseMultiplier * progressIncreaseMultiplier);
-            state.Quality += Math.Floor(action == (int)Atlas.Actions.ActionMap.TrainedEye ? Recipe.MaxQuality : BaseQualityIncrease * a.QualityIncreaseMultiplier * qualityIncreaseMultiplier);
-
+            
             #region Combos
             switch (action)
             {
@@ -185,26 +182,30 @@
 
             #region Durability
             byte durabilityCost = a.DurabilityCost;
-            if (durabilityCost > 0 && state.TrainedPerfectionActive)
+            if (durabilityCost > 0)
             {
-                durabilityCost = 0;
-                state.TrainedPerfectionUsed = true;
-                state.TrainedPerfectionActive = false;
+                if (state.TrainedPerfectionActive)
+                {
+                    durabilityCost = 0;
+                    state.TrainedPerfectionUsed = true;
+                    state.TrainedPerfectionActive = false;
+                }
+                else if (state.WasteNotActive)
+                {
+                    state.WasteNotUsed = true;
+                    durabilityCost /= 2;
+                }
+                state.Durability -= durabilityCost;
             }
-
-            if (state.WasteNotActive && a.DurabilityCost > 0)
-            {
-                state.WasteNotUsed = true;
-                durabilityCost /= 2;
-            }
-            
-            state.Durability -= durabilityCost;
-
-            #region Durability Restoration
-            if (action == (int)Atlas.Actions.ActionMap.MastersMend)
+            else if (action == (int)Atlas.Actions.ActionMap.MastersMend)
             {
                 if (Math.Abs(state.Durability - Recipe.Durability) < 0.9) return false;
                 state.Durability += 30;
+            }
+            else if (action == (int)Atlas.Actions.ActionMap.ImmaculateMend)
+            {
+                if (Recipe.Durability - state.Durability <= 30) return false;
+                state.Durability += Recipe.Durability;
             }
             
             if (state is { ManipulationActive: true, Durability: > 0 } && action != (int)Atlas.Actions.ActionMap.Manipulation)
@@ -212,13 +213,6 @@
                 if (state.Durability < Recipe.Durability) state.ManipulationUsed = true;
                 state.Durability += 5;
             }
-
-            if (action == (int)Atlas.Actions.ActionMap.ImmaculateMend)
-            {
-                if (Recipe.Durability - state.Durability <= 30) return false;
-                state.Durability += Recipe.Durability;
-            }
-            #endregion
 
             state.Durability = Math.Min(state.Durability, Recipe.Durability);
             #endregion
@@ -247,7 +241,10 @@
             #endregion
 
             if (!state.DecrementBuffs()) return false;
-            if (a.ActionType == ActionType.CountDown) state.SetBuff(action, a.ActiveTurns);
+            if (a.ActionType == ActionType.CountDown)
+            {
+                if (!state.SetBuff(action, a.ActiveTurns)) return false;
+            }
 
             state.Step      += 1;
             state.InnerQuiet = Math.Min(state.InnerQuiet, (byte)10);
@@ -335,15 +332,15 @@
 
         public bool DecrementBuffs()
         {
-            if (MuscleMemoryActive && --MuscleMemoryDuration == 0) return false;
             if (VenerationActive && --VenerationDuration == 0 && !VenerationUsed) return false;
             if (ObserveActive)
             {
                 if (!ObserveUsed) return false;
                 else ObserveActive = false;
             }
-            if (GreatStridesActive && --GreatStridesDuration == 0) return false;
             if (InnovationActive && --InnovationDuration == 0 && !InnovationUsed) return false;
+            if (GreatStridesActive && --GreatStridesDuration == 0) return false;
+            if (MuscleMemoryActive && --MuscleMemoryDuration == 0) return false;
             if (WasteNotActive && --WasteNotDuration == 0 && !WasteNotUsed) return false;
             if (ManipulationActive && --ManipulationDuration == 0 && !ManipulationUsed) return false;
 

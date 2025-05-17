@@ -112,7 +112,7 @@
             if (a.ProgressIncreaseMultiplier > 0)
             {
                 double progressIncreaseMultiplier = 1;
-                if (a.ProgressIncreaseMultiplier > 0 && state.MuscleMemoryActive)
+                if (state.MuscleMemoryActive)
                 {
                     progressIncreaseMultiplier += 1;
                     state.MuscleMemoryDuration = 0;
@@ -300,35 +300,35 @@
         public byte InnerQuiet { get; set; }
 
         public bool WasteNotActive => WasteNotDuration > 0;
-        private byte WasteNotDuration { get; set; }
+        public byte WasteNotDuration { get; set; }
         public bool WasteNotUsed { get; set; }
 
         public bool MuscleMemoryActive => MuscleMemoryDuration > 0;
         public byte MuscleMemoryDuration { get; set; }
 
         public bool VenerationActive => VenerationDuration > 0;
-        private byte VenerationDuration { get; set; }
+        public byte VenerationDuration { get; set; }
         public bool VenerationUsed { get; set; }
 
         public bool GreatStridesActive => GreatStridesDuration > 0;
         public byte GreatStridesDuration { get; set; }
 
         public bool InnovationActive => InnovationDuration > 0;
-        private byte InnovationDuration { get; set; }
+        public byte InnovationDuration { get; set; }
         public bool InnovationUsed { get; set; }
 
         public bool TrainedPerfectionActive { get; set; }
         public bool TrainedPerfectionUsed { get; set; }
 
         public bool ManipulationActive => ManipulationDuration > 0;
-        private byte ManipulationDuration { get; set; }
+        public byte ManipulationDuration { get; set; }
         public bool ManipulationUsed { get; set; }
         
-        public bool ObserveActive { get; private set; }
+        public bool ObserveActive { get; set; }
         public bool ObserveUsed { get; set; }
         
-        public bool BasicTouchActive { get; private set; }
-        public bool StandardTouchActive { get; private set; }
+        public bool BasicTouchActive { get; set; }
+        public bool StandardTouchActive { get; set; }
 
         public bool DecrementBuffs()
         {

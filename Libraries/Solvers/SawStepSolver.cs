@@ -11,7 +11,7 @@ public class SawStepSolver
     private const int
         MaxThreads = 25,
         MaxDepth = 30,
-        StepForwardDepth = 6,
+        StepForwardDepth = 5,
         StepSize = 1000;
 
     private double _bestScore;
@@ -489,7 +489,7 @@ public class SawStepSolver
             _bestScore = score;
             LightState s = _sim.SimulateToFailure(path);
             _bestSolution = path.Take(s.Step).Select(x => Atlas.Actions.AllActions[x]).ToList();
-            _logger($"\t{_bestScore:P} ({s.Quality:N0} / {_sim.Recipe.MaxQuality:N0} quality) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
+            _logger($"\t{_bestScore:P} ({s.Quality:N0} Quality | {s.CP} CP | {s.Durability} Durability) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
         }
     }
 

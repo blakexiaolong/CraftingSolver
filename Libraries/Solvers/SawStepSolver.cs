@@ -12,14 +12,14 @@ public class SawStepSolver
         MaxThreads = 25,
         MaxDepth = 30,
         StepForwardDepth = 5,
-        StepSize = 1000;
+        StepSize = 100;
 
     private double _bestScore;
     private List<Action> _bestSolution;
     private long _presolveFound, _evaluated, _failures, _skipped , _forwardSet;
     private long _totalEvaluated, _totalFailures, _totalSkipped, _nodesEvaluated;
 
-    private readonly LightSimulator _sim;
+    private readonly NanoSimulator _sim;
     private readonly LoggingDelegate _logger;
     private readonly byte[] _actions;
 
@@ -90,9 +90,9 @@ public class SawStepSolver
     private readonly Thread?[] _threads = new Thread[MaxThreads];
     private readonly object _locker = new();
     private readonly Stopwatch _sw = new ();
-    private readonly ConcurrentBag<(double, List<byte>, byte[])> _stepResults = new();
+    private readonly ConcurrentBag<(double, byte[], LightState)> _stepResults = new();
 
-    public SawStepSolver(LightSimulator sim, LoggingDelegate loggingDelegate)
+    public SawStepSolver(NanoSimulator sim, LoggingDelegate loggingDelegate)
     {
         _sim = sim;
         _logger = loggingDelegate;
@@ -197,16 +197,16 @@ public class SawStepSolver
     }
     private (bool,int) AuditPresolve(byte[] path)
     {
-        int durability = 5, wn = 0, manip = 0;
+        int durability = _sim.Recipe.Durability, wn = 8, manip = 8; // assume max durability, ticking waste not 2 and manipulation
         int lastWasteNot = -1, lastManip = -1, innovation = -1, veneration = -1;
-        bool byregotsUsed = false, trainedPerfectionUsed = true;
+        bool byregotsUsed = false, trainedPerfectionUsed = false;
         for (short i = 0; i < path.Length; i++)
         {
             Action action = Atlas.Actions.AllActions[path[i]];
             if (i > 0)
             {
                 if (Atlas.Actions.Buffs.Contains(path[i]) && path[i] == path[i - 1]) return (false, i); // repeated buff
-                if (path[i] == (byte)Atlas.Actions.ActionMap.BasicTouch && path[i - 1] is (byte)Atlas.Actions.ActionMap.BasicTouch or (byte)Atlas.Actions.ActionMap.StandardTouch) return (false, i); // bad ordering
+                if (path[i] == (byte)Atlas.Actions.ActionMap.BasicTouch && path[i - 1] is (byte)Atlas.Actions.ActionMap.BasicTouch) return (false, i); // bad ordering
                 if (path[i] == (byte)Atlas.Actions.ActionMap.ByregotsBlessing)
                 {
                     if (byregotsUsed) return (false, i); // not a good idea
@@ -219,25 +219,25 @@ public class SawStepSolver
                 }
             }
             if (Atlas.Actions.FirstRoundActions.Contains(path[i])) return (false, i); // first round actions aren't allowed
-            int cost = action.DurabilityCost / 2; // may have a ticking waste not
+            int cost = wn > 0 ? action.DurabilityCost / 2 : action.DurabilityCost;
             
             if (path[i] is (byte)Atlas.Actions.ActionMap.WasteNot or (byte)Atlas.Actions.ActionMap.WasteNot2)
             {
                 if (lastWasteNot >= 0 && i - lastWasteNot <= 2) return (false, i); // super wasteful
-                wn = Math.Max(wn, action.ActiveTurns);
+                wn = lastWasteNot > 0 ? Math.Max(wn, action.ActiveTurns) : action.ActiveTurns;
                 lastWasteNot = i;
             }
             else if (path[i] == (byte)Atlas.Actions.ActionMap.Manipulation)
             {
                 if (lastManip >= 0 && i - lastManip <= 5) return (false, i); // not worth the GP
-                manip = Math.Max(manip, action.ActiveTurns);
+                manip = lastManip > 0 ? Math.Max(manip, action.ActiveTurns) : action.ActiveTurns;
                 lastManip = i;
             }
             else if (path[i] == (byte)Atlas.Actions.ActionMap.MastersMend) durability += 30;
             else if (path[i] == (byte)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
             else if (path[i] == (byte)Atlas.Actions.ActionMap.PrudentTouch || path[i]==(byte)Atlas.Actions.ActionMap.PrudentSynthesis)
             {
-                if (wn > 0) return (false, i); // can't use this action
+                if (lastWasteNot > -1 && wn > 0) return (false, i); // can't use this action
             }
             else if (path[i] == (byte)Atlas.Actions.ActionMap.Veneration)
             {
@@ -282,7 +282,7 @@ public class SawStepSolver
         _sw.Start();
 
         int step = 0;
-        List<(double, List<byte>, byte[])> prevStep = _actions.Select(x => (-1D, new List<byte> { x }, Array.Empty<byte>())).Where(x => !_sim.Simulate(x.Item2).IsError).ToList();
+        List<(double, byte[])> prevStep = _actions.Select(x => (-1D, new[] { x })).Where(x => !_sim.Simulate(x.Item2).IsError).ToList();
 
         _totalEvaluated = 0;
         _totalFailures = 0;
@@ -330,14 +330,23 @@ public class SawStepSolver
                     $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
                     $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) | " +
                     $"{_failures:N0} failures ({(double)_failures / _evaluated:P0})" +
-                    $">> {_forwardSet:N0}");
+                    $" >> {_forwardSet:N0}");
             _nodesEvaluated += prevStep.Count;
 
-            prevStep = _stepResults.OrderByDescending(x => x.Item1).Take(StepSize).ToList();
+            //TODO: reenable this? somehow it was dropping the final score
+            // prevStep = _stepResults.GroupBy(x => x.Item1)
+            //     .OrderByDescending(x => x.Key)
+            //     .Take(StepSize)
+            //     .SelectMany(group => group.DistinctBy(x => x.Item3))
+            //     .Take(StepSize)
+            //     .Select(x => (x.Item1, x.Item2))
+            //     .ToList();
+            prevStep = _stepResults.OrderByDescending(x => x.Item1).Take(StepSize).Select(x => (x.Item1, x.Item2)).ToList();
+            
             _totalEvaluated += _evaluated;
             _totalFailures += _failures;
             _totalSkipped += _skipped;
-        } while (_stepResults.Any() && _stepResults.First().Item2.Count < MaxDepth - StepForwardDepth);
+        } while (_stepResults.Any() && _stepResults.First().Item2.Length < MaxDepth - StepForwardDepth);
 
         _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds, true)}] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
@@ -347,13 +356,13 @@ public class SawStepSolver
                 $"(~{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth) / Math.Pow(_actions.Length, MaxDepth):P12} of game space) evaluated");
         return _bestSolution;
     }
-    private Thread SolverThread(int threadId, (double, List<byte>, byte[]) prevStep) => new(() =>
+    private Thread SolverThread(int threadId, (double, byte[]) prevStep) => new(() =>
     {
         if (_countdown.IsSet) return;
         _countdown.AddCount();
 
-        ResetLocals(out double localBestScore, out var localBestPath, out var localBestExpansion);
-        List<(double, List<byte>, byte[])> forward = new();
+        ResetLocals(out double localBestScore, out var localBestPath, out var localBestState);
+        List<(double, byte[], LightState)> forward = new();
         LightState prevState = _sim.Simulate(prevStep.Item2);
 
         #region Handle New Expansions
@@ -384,8 +393,8 @@ public class SawStepSolver
             if (prevKey != key)
             {
                 if (localBestScore >= 0)
-                    forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count + 1).ToList(), localBestExpansion.ToArray()));
-                ResetLocals(out localBestScore, out localBestPath, out localBestExpansion);
+                    forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + 1).ToArray(), localBestState));
+                ResetLocals(out localBestScore, out localBestPath, out localBestState);
                 prevKey = key;
             }
 
@@ -396,7 +405,7 @@ public class SawStepSolver
             if (score > localBestScore)
             {
                 if (success) ConfirmHighScore(score, prevStep, path);
-                PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, path);
+                PreserveState(score, parentState, ref localBestScore, ref localBestPath, ref localBestState, prevStep, path);
             }
             int stepsTaken = parentState.Step - prevState.Step;
             if (stepsTaken <= StepForwardDepth - 2)
@@ -431,18 +440,18 @@ public class SawStepSolver
                     {
                         path[StepForwardDepth - 1] = _stateToAction[1 << i];
                         if (state.Success(_sim)) ConfirmHighScore(score, prevStep, path);
-                        PreserveState(score, ref localBestScore, ref localBestPath, ref localBestExpansion, prevStep, path);
+                        PreserveState(score, state, ref localBestScore, ref localBestPath, ref localBestState, prevStep, path);
                     }
                 }
             }
             pool.Return(path, true);
         }
 
-        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Count + 1).ToList(), localBestExpansion.ToArray()));
+        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + 1).ToArray(), localBestState));
         #endregion
 
         _forwardSet += forward.Count;
-        foreach (var item in forward.OrderByDescending(x => x.Item1).Take(StepSize)) _stepResults.Add(item);
+        foreach (var item in forward.OrderByDescending(x => x.Item1)) _stepResults.Add(item);
         
         if (threadId < _threads.Length) _threads[threadId] = null;
         _countdown.Signal();
@@ -460,26 +469,26 @@ public class SawStepSolver
         double cp = state.CP / _sim.Crafter.CP;
         double steps = 1 - state.Step / 100D;
 
-        return (progress*90 + quality*200 + steps*9 + cp*1) / 300; // max 100
+        return (progress*90 + quality*150 + steps*9 + cp*1) / 250; // max 100
     }
     #endregion
 
     #region Helpers
-    private void ResetLocals(out double localBestScore, out IEnumerable<byte> localBestPath, out IEnumerable<byte> localBestExpansion)
+    private void ResetLocals(out double localBestScore, out IEnumerable<byte> localBestPath, out LightState localBestState)
     {
         localBestScore = double.MinValue;
         localBestPath = Array.Empty<byte>();
-        localBestExpansion = Array.Empty<byte>();
+        localBestState = new LightState();
     }
-    private void PreserveState(double score, ref double localBestScore, ref IEnumerable<byte> localBestPath, ref IEnumerable<byte> localBestExpansion, (double, List<byte>, byte[]) prevStep, byte[] batch)
+    private void PreserveState(double score, LightState state, ref double localBestScore, ref IEnumerable<byte> localBestPath, ref LightState localBestState, (double, byte[]) prevStep, byte[] batch)
     {
         if (score <= localBestScore) return;
         
         localBestScore = score;
         localBestPath = prevStep.Item2.Concat(batch);
-        localBestExpansion = batch;
+        localBestState = state;
     }
-    private void ConfirmHighScore(double score, (double, List<byte>, byte[]) prevStep, IEnumerable<byte> batch)
+    private void ConfirmHighScore(double score, (double, byte[]) prevStep, IEnumerable<byte> batch)
     {
         lock (_locker)
         {
@@ -489,7 +498,7 @@ public class SawStepSolver
             _bestScore = score;
             LightState s = _sim.SimulateToFailure(path);
             _bestSolution = path.Take(s.Step).Select(x => Atlas.Actions.AllActions[x]).ToList();
-            _logger($"\t{_bestScore:P} ({s.Quality:N0} Quality | {s.CP} CP | {s.Durability} Durability) {string.Join(", ", _bestSolution.Select(x => x.ShortName))}");
+            _logger($"\t{_bestScore:P} ({s.Quality:N0} Quality | {s.CP:N0} CP | {s.Durability:N0} Durability) [\"{string.Join("\", \"", _bestSolution.Select(x => x.ShortName))}\"]");
         }
     }
 

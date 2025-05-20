@@ -70,17 +70,13 @@ public class NanoSimulator
         Action a = Atlas.Actions.AllActions[action];
 
         #region Before Action
-        if (state.Progress >= Recipe.Difficulty) return false;
         if (state.Durability <= 0) return false;
+        if (state.Progress >= Recipe.Difficulty) return false;
         #endregion
 
         double multiplier = 1;
         switch (action)
         {
-            case (int)Atlas.Actions.ActionMap.TrainedPerfection:
-                if (state.TrainedPerfectionUsed || state.TrainedPerfectionActive) return false;
-                state.TrainedPerfectionActive = true;
-                break;
             case (int)Atlas.Actions.ActionMap.Groundwork:
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.MuscleMemoryActive)
@@ -147,21 +143,16 @@ public class NanoSimulator
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.VenerationActive && !state.VenerationUsed) return false;
                 state.CP -= a.CPCost;
-                state.VenerationDuration = a.ActiveTurns;
-                state.VenerationUsed = false;
                 break;
             case (int)Atlas.Actions.ActionMap.Innovation:
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.InnovationActive && !state.InnovationUsed) return false;
                 state.CP -= a.CPCost;
-                state.InnovationDuration = a.ActiveTurns;
-                state.InnovationUsed = false;
                 break;
             case (int)Atlas.Actions.ActionMap.GreatStrides:
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.GreatStridesActive) return false;
                 state.CP -= a.CPCost;
-                state.GreatStridesDuration = a.ActiveTurns;
                 break;
             case (int)Atlas.Actions.ActionMap.BasicSynth:
                 if (state.CP - a.CPCost < 0) return false;
@@ -217,6 +208,7 @@ public class NanoSimulator
                 break;
             case (int)Atlas.Actions.ActionMap.BasicTouch:
                 if (state.CP - a.CPCost < 0) return false;
+                if (state.BasicTouchActive || state.StandardTouchActive || state.ObserveActive) return false;
                 if (state.GreatStridesActive)
                 {
                     multiplier += 1;
@@ -242,10 +234,10 @@ public class NanoSimulator
                 }
                 else state.Durability -= a.DurabilityCost;
                 state.InnerQuiet = (byte)Math.Min(state.InnerQuiet + 1, 10);
-                state.BasicTouchActive = true;
                 break;
             case (int)Atlas.Actions.ActionMap.StandardTouch:
                 if (state.CP - a.CPCost < 0) return false;
+                if (state.StandardTouchActive || state.ObserveActive) return false;
                 if (state.GreatStridesActive)
                 {
                     multiplier += 1;
@@ -271,7 +263,6 @@ public class NanoSimulator
                 }
                 else state.Durability -= a.DurabilityCost;
                 state.InnerQuiet = (byte)Math.Min(state.InnerQuiet + 1, 10);
-                if (state.BasicTouchActive) state.StandardTouchActive = true;
                 break;
             case (int)Atlas.Actions.ActionMap.AdvancedTouch:
                 if (state.CP - a.CPCost < 0) return false;
@@ -348,7 +339,7 @@ public class NanoSimulator
             case (int)Atlas.Actions.ActionMap.ByregotsBlessing:
                 if (state.CP - a.CPCost < 0) return false;
                 byte iq = state.InnerQuiet;
-                if (iq < 3) return false;
+                if (iq < 5) return false;
                 if (state.GreatStridesActive)
                 {
                     multiplier += 1;
@@ -391,19 +382,15 @@ public class NanoSimulator
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.ManipulationActive && !state.ManipulationUsed) return false;
                 state.CP -= a.CPCost;
-                state.ManipulationDuration = a.ActiveTurns;
-                state.ManipulationUsed = false;
                 break;
             case (int)Atlas.Actions.ActionMap.WasteNot:
             case (int)Atlas.Actions.ActionMap.WasteNot2:
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.WasteNotActive && !state.WasteNotUsed) return false;
                 state.CP -= a.CPCost;
-                state.WasteNotDuration = a.ActiveTurns;
-                state.WasteNotUsed = false;
                 break;
             case (int)Atlas.Actions.ActionMap.PrudentTouch:
-                if (state.WasteNotActive) return false;
+                if (state.WasteNotActive || state.TrainedPerfectionActive) return false;
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.GreatStridesActive)
                 {
@@ -418,12 +405,7 @@ public class NanoSimulator
                 multiplier *= 1 + 0.1 * state.InnerQuiet;
                 state.Quality += Math.Floor(BaseQualityIncrease * a.QualityIncreaseMultiplier * multiplier);
                 state.CP -= a.CPCost;
-                if (state.TrainedPerfectionActive)
-                {
-                    state.TrainedPerfectionUsed = true;
-                    state.TrainedPerfectionActive = false;
-                }
-                else if (state.WasteNotActive)
+                if (state.WasteNotActive)
                 {
                     state.WasteNotUsed = true;
                     state.Durability -= (short)(a.DurabilityCost / 2);
@@ -492,7 +474,7 @@ public class NanoSimulator
                 state.InnerQuiet = (byte)Math.Min(state.InnerQuiet + 1, 10);
                 break;
             case (int)Atlas.Actions.ActionMap.PrudentSynthesis:
-                if (state.WasteNotActive) return false;
+                if (state.WasteNotActive || state.TrainedPerfectionActive) return false;
                 if (state.CP - a.CPCost < 0) return false;
                 if (state.MuscleMemoryActive)
                 {
@@ -519,10 +501,9 @@ public class NanoSimulator
                 else state.Durability -= a.DurabilityCost;
                 break;
             case (int)Atlas.Actions.ActionMap.Observe:
+                if (state.CP - a.CPCost < 0) return false;
                 if (state.ObserveActive) return false;
                 state.CP -= a.CPCost;
-                state.ObserveActive = true;
-                state.ObserveUsed = false;
                 break;
             case (int)Atlas.Actions.ActionMap.TrainedEye:
                 if (state.Step > 0) return false;
@@ -545,6 +526,7 @@ public class NanoSimulator
             case (int)Atlas.Actions.ActionMap.Reflect:
                 if (state.Step > 0) return false;
                 if (state.CP - a.CPCost < 0) return false;
+                state.Quality += Math.Floor(BaseQualityIncrease * a.QualityIncreaseMultiplier * multiplier);
                 state.CP -= a.CPCost;
                 if (state.TrainedPerfectionActive)
                 {
@@ -563,6 +545,7 @@ public class NanoSimulator
             case (int)Atlas.Actions.ActionMap.MuscleMemory:
                 if (state.Step > 0) return false;
                 if (state.CP - a.CPCost < 0) return false;
+                state.Progress += Math.Floor(BaseProgressIncrease * a.ProgressIncreaseMultiplier * multiplier);
                 state.CP -= a.CPCost;
                 if (state.TrainedPerfectionActive)
                 {
@@ -575,11 +558,16 @@ public class NanoSimulator
                     state.Durability -= (short)(a.DurabilityCost / 2);
                 }
                 else state.Durability -= a.DurabilityCost;
-                state.MuscleMemoryDuration = a.ActiveTurns;
                 break;
         }
         
         #region After Action
+        if (state is { ManipulationActive: true, Durability: > 0 } && action != (byte)Atlas.Actions.ActionMap.Manipulation)
+        {
+            if (state.Durability < Recipe.Durability) state.ManipulationUsed = true;
+            state.Durability = (short)Math.Min(state.Durability + 5, Recipe.Durability);
+        }
+        
         if (state.VenerationActive && --state.VenerationDuration == 0 && !state.VenerationUsed) return false;
         if (state.ObserveActive)
         {
@@ -591,16 +579,59 @@ public class NanoSimulator
         if (state.MuscleMemoryActive && --state.MuscleMemoryDuration == 0) return false;
         if (state.WasteNotActive && --state.WasteNotDuration == 0 && !state.WasteNotUsed) return false;
         if (state.ManipulationActive && --state.ManipulationDuration == 0 && !state.ManipulationUsed) return false;
-        
-        if (state is { ManipulationActive: true, Durability: > 0 } && action != (byte)Atlas.Actions.ActionMap.Manipulation)
-        {
-            if (state.Durability < Recipe.Durability) state.ManipulationUsed = true;
-            state.Durability = (short)Math.Min(state.Durability + 5, Recipe.Durability);
-        }
-        state.Step += 1;
 
         state.BasicTouchActive = false;
         state.StandardTouchActive = false;
+
+        switch (action)
+        {
+            case (byte)Atlas.Actions.ActionMap.WasteNot:
+            case (byte)Atlas.Actions.ActionMap.WasteNot2:
+                if (state.WasteNotActive && !state.WasteNotUsed) return false;
+                state.WasteNotDuration = a.ActiveTurns;
+                state.WasteNotUsed = false;
+                break;
+            case (byte)Atlas.Actions.ActionMap.MuscleMemory:
+                if (state.MuscleMemoryActive) return false;
+                state.MuscleMemoryDuration = a.ActiveTurns;
+                break;
+            case (byte)Atlas.Actions.ActionMap.Veneration:
+                if (state.VenerationActive && !state.VenerationUsed) return false;
+                state.VenerationDuration = a.ActiveTurns;
+                state.VenerationUsed = false;
+                break;
+            case (byte)Atlas.Actions.ActionMap.GreatStrides:
+                if (state.GreatStridesActive) return false;
+                state.GreatStridesDuration = a.ActiveTurns;
+                break;
+            case (byte)Atlas.Actions.ActionMap.Innovation:
+                if (state.InnovationActive && !state.InnovationUsed) return false;
+                state.InnovationDuration = a.ActiveTurns;
+                state.InnovationUsed = false;
+                break;
+            case (byte)Atlas.Actions.ActionMap.TrainedPerfection:
+                if (state.TrainedPerfectionActive || state.TrainedPerfectionUsed) return false;
+                state.TrainedPerfectionActive = true;
+                break;
+            case (byte)Atlas.Actions.ActionMap.Manipulation:
+                if (state.ManipulationActive && !state.ManipulationUsed) return false;
+                state.ManipulationDuration = a.ActiveTurns;
+                state.ManipulationUsed = false;
+                break;
+            case (byte)Atlas.Actions.ActionMap.Observe:
+                if (state.ObserveActive) return false;
+                state.ObserveActive = true;
+                state.ObserveUsed = false;
+                break;
+            case (byte)Atlas.Actions.ActionMap.BasicTouch:
+                state.BasicTouchActive = true;
+                break;
+            case (byte)Atlas.Actions.ActionMap.StandardTouch when state.BasicTouchActive:
+                state.StandardTouchActive = true;
+                break;
+        }
+        
+        state.Step += 1;
         #endregion
             
         return true;

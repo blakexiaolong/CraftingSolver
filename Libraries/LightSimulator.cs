@@ -11,6 +11,8 @@
         private double BaseProgressIncrease { get; }
         private double BaseQualityIncrease { get; }
 
+        private NanoSimulator _sim2;
+
         public LightSimulator(Crafter crafter, Recipe recipe)
         {
             Crafter = crafter;
@@ -21,26 +23,19 @@
             PureLevelDifference = Crafter.Level - Recipe.Level;
             BaseProgressIncrease = CalculateBaseProgressIncrease();
             BaseQualityIncrease = CalculateBaseQualityIncrease();
+
+            _sim2 = new NanoSimulator(crafter, Recipe);
         }
 
         #region Public Calls
-        public LightState SimulateToFailure(byte[] actions, LightState startState)
-        {
-            LightState state = startState;
-            foreach (var action in actions)
-            {
-                LightState prevState = state;
-                if (!Simulate(action, ref state)) return prevState;
-            }
-            return state;
-        }
         public LightState SimulateToFailure(byte[] actions)
         {
             LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
             foreach (var action in actions)
             {
                 LightState prevState = state;
-                if (!Simulate(action, ref state)) return prevState;
+                bool sim1 = Simulate(action, ref state);
+                if (!sim1) return prevState;
             }
             return state;
         }
@@ -50,41 +45,28 @@
             for (int i = 0; i < take; i++)
             {
                 LightState prevState = state;
-                if (!Simulate(actions[i], ref state)) return prevState;
-            }
-            return state;
-        }
-        public LightState Simulate(IEnumerable<byte> actions, LightState startState)
-        {
-            LightState state = startState;
-            if (actions.Any(action => !Simulate(action, ref state)))
-            {
-                return new LightState { IsError = true };
+                bool sim1 = Simulate(actions[i], ref state);
+                if (!sim1) return prevState;
             }
             return state;
         }
         public LightState Simulate(byte action, LightState startState)
         {
             LightState state = startState;
-            if (!Simulate(action, ref state)) return new LightState { IsError = true };
+            bool ret = Simulate(action, ref state);
+            if (!ret) return new LightState { IsError = true };
             return state;
         }
         public LightState Simulate(IEnumerable<byte> actions)
         {
             LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            if (actions.Any(action => !Simulate(action, ref state)))
+            if (actions.Any(action =>
+                {
+                    bool ret = Simulate(action, ref state);
+                    return !ret;
+                }))
             {
                 return new LightState { IsError = true };
-            }
-            return state;
-        }
-        public LightState Simulate(byte[] actions, int startIx)
-        {
-            LightState state = new LightState(Recipe.StartQuality, Crafter.CP, Recipe.Durability);
-            for (int i = startIx; i < actions.Length; i++)
-            {
-                if (!Simulate(actions[i], ref state))
-                    return new LightState { IsError = true };
             }
             return state;
         }
@@ -286,7 +268,7 @@
         }
     }
 
-    public struct LightState
+    public struct LightState : IEquatable<LightState>
     {
         public bool IsError { get; init; }
         
@@ -433,5 +415,21 @@
         }
         
         public bool Success(LightSimulator sim) => Progress >= sim.Recipe.Difficulty && CP >= 0;
+        public bool Success(NanoSimulator sim) => Progress >= sim.Recipe.Difficulty && CP >= 0;
+        public bool Equals(LightState other)
+        {
+            return IsError == other.IsError && Step == other.Step && Durability == other.Durability && CP == other.CP &&
+                   Math.Abs(Quality - other.Quality) < 0.01 && Math.Abs(Progress - other.Progress) < 0.01 &&
+                   InnerQuiet == other.InnerQuiet && WasteNotDuration == other.WasteNotDuration &&
+                   WasteNotUsed == other.WasteNotUsed && MuscleMemoryDuration == other.MuscleMemoryDuration &&
+                   VenerationDuration == other.VenerationDuration &&
+                   VenerationUsed == other.VenerationUsed && GreatStridesDuration == other.GreatStridesDuration &&
+                   InnovationDuration == other.InnovationDuration && InnovationUsed == other.InnovationUsed &&
+                   TrainedPerfectionActive == other.TrainedPerfectionActive &&
+                   TrainedPerfectionUsed == other.TrainedPerfectionUsed &&
+                   ManipulationDuration == other.ManipulationDuration && ManipulationUsed == other.ManipulationUsed &&
+                   ObserveActive == other.ObserveActive && ObserveUsed == other.ObserveUsed &&
+                   BasicTouchActive == other.BasicTouchActive && StandardTouchActive == other.StandardTouchActive;
+        }
     }
 }

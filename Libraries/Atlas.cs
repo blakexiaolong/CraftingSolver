@@ -559,7 +559,7 @@
                     }
                 }
             };
-            public static readonly byte[] DependableActions = { // 25
+            public static readonly byte[] DependableActions = { // 26
                 (int)ActionMap.MuscleMemory,
                 (int)ActionMap.Reflect,
                 (int)ActionMap.TrainedEye,
@@ -578,6 +578,7 @@
                 
                 (int)ActionMap.CarefulSynthesis,
                 (int)ActionMap.DelicateSynthesis,
+                (int)ActionMap.PrudentSynthesis,
                 (int)ActionMap.Groundwork,
                 (int)ActionMap.BasicSynth,
 

@@ -197,11 +197,13 @@ public class SawStepSolver
     }
     private (bool,int) AuditPresolve(byte[] path)
     {
-        int durability = _sim.Recipe.Durability, wn = 8, manip = 8; // assume max durability, ticking waste not 2 and manipulation
+        int maxDurability = _sim.Recipe.Durability, minDurability = 5;
+        int wn = 8, manip = 8; // assume ticking waste not 2 and manipulation
         int lastWasteNot = -1, lastManip = -1, innovation = -1, veneration = -1;
         bool byregotsUsed = false, trainedPerfectionUsed = false;
         for (short i = 0; i < path.Length; i++)
         {
+            if (maxDurability <= 0) return (false, i - 1);
             Action action = Atlas.Actions.AllActions[path[i]];
             if (i > 0)
             {
@@ -233,8 +235,18 @@ public class SawStepSolver
                 manip = lastManip > 0 ? Math.Max(manip, action.ActiveTurns) : action.ActiveTurns;
                 lastManip = i;
             }
-            else if (path[i] == (byte)Atlas.Actions.ActionMap.MastersMend) durability += 30;
-            else if (path[i] == (byte)Atlas.Actions.ActionMap.ImmaculateMend) durability += _sim.Recipe.Durability;
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.MastersMend)
+            {
+                if (minDurability >= _sim.Recipe.Durability - 10) return (false, i); // wasted
+                maxDurability += 30;
+                minDurability += 30;
+            }
+            else if (path[i] == (byte)Atlas.Actions.ActionMap.ImmaculateMend)
+            {
+                if (minDurability >= _sim.Recipe.Durability - 30) return (false, i); // should have just used Master's Mend
+                maxDurability = _sim.Recipe.Durability;
+                minDurability = _sim.Recipe.Durability;
+            }
             else if (path[i] == (byte)Atlas.Actions.ActionMap.PrudentTouch || path[i]==(byte)Atlas.Actions.ActionMap.PrudentSynthesis)
             {
                 if (lastWasteNot > -1 && wn > 0) return (false, i); // can't use this action
@@ -262,9 +274,15 @@ public class SawStepSolver
             }
             else if (veneration == 0) return (false, i); // veneration fell off without being used
             
-            durability -= cost;
-            if (manip > 0) durability += 5;
-            durability = Math.Min(durability, _sim.Recipe.Durability);
+            maxDurability -= cost;
+            minDurability -= lastWasteNot >= 0 ? cost : action.DurabilityCost; // don't assume waste not is active here
+            if (manip > 0)
+            {
+                maxDurability += 5;
+                if (lastManip >= 0) minDurability += 5; // don't assume manipulation is active here
+            }
+            maxDurability = Math.Min(maxDurability, _sim.Recipe.Durability);
+            minDurability = Math.Min(minDurability, _sim.Recipe.Durability);
             wn--;
             manip--;
             innovation--;

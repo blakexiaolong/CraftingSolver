@@ -11,8 +11,9 @@ public class SawStepSolver
     private const int
         MaxThreads = 25,
         MaxDepth = 30,
-        StepForwardDepth = 5,
-        StepSize = 100;
+        StepForwardDepth = 7,
+        StepBackDepth = 0,
+        StepSize = 10_000;
 
     private double _bestScore;
     private List<Action> _bestSolution;
@@ -117,24 +118,29 @@ public class SawStepSolver
 
         long skipped = 0;
         byte[] actions = _sim.Crafter.Actions.Where(x => !Atlas.Actions.FirstRoundActions.Contains(x)).ToArray();
-        List<Dictionary<uint, StateNode>> allowedNodes = new List<Dictionary<uint, StateNode>>(actions.Length);
+        List<StateNode>[] allowedNodes = new List<StateNode>[actions.Length];
 
         List<Thread> presolverThreads = new();
         for (int i = 0; i < actions.Length; i++)
         {
             int ix = i;
+            allowedNodes[ix] = new();
+            
             byte[] path = new byte[StepForwardDepth];
-            path[0] = actions[i];
+            path[0] = actions[ix];
             for (int j = 1; j < path.Length; j++)
                 path[j] = actions[0];
-            allowedNodes.Insert(i, new Dictionary<uint, StateNode>());
 
             presolverThreads.Add(new Thread(() =>
             {
-                Dictionary<uint, StateNode> dict = allowedNodes[ix];
                 int skipIx = -1, skipKey = 0;
                 long foundPaths = 0;
 
+                uint stateIx = 0;
+                for (int j = 0; j < StepForwardDepth - 1; j++)
+                    stateIx = stateIx * TreeWidth + path[j];
+                StateNode node = new StateNode() { Id = stateIx, Actions = 0 };
+                
                 do
                 {
                     if (skipIx >= 0 && path[skipIx] == skipKey) continue; // nyoooom
@@ -144,13 +150,19 @@ public class SawStepSolver
                     if (audit.Item1)
                     {
                         foundPaths += 1;
-                        uint stateIx = 0;
+                        uint newStateIx = 0;
                         for (int j = 0; j < StepForwardDepth - 1; j++)
-                            stateIx = stateIx * TreeWidth + path[j];
-                        if (!dict.ContainsKey(stateIx)) dict[stateIx] = new StateNode() { Id =  stateIx, Actions = 0 }; // TODO: get rid of dictionary resizing?
-                        var node = dict[stateIx];
-                        node.Actions |= (StateNode.StateActions)_actionToState[path[StepForwardDepth - 1]];
-                        dict[stateIx] = node;
+                            newStateIx = newStateIx * TreeWidth + path[j];
+                        if (newStateIx != stateIx)
+                        {
+                            if (node.Actions != 0) allowedNodes[ix].Add(node);
+                            node = new StateNode() { Id = stateIx, Actions = 0 };
+                            stateIx = newStateIx;
+                        }
+                        else
+                        {
+                            node.Actions |= (StateNode.StateActions)_actionToState[path[StepForwardDepth - 1]];
+                        }
                     }
                     else
                     {
@@ -168,7 +180,7 @@ public class SawStepSolver
         foreach (var t in presolverThreads) t.Join();
 
         Console.WriteLine($"\nPresolved - {skipped:N0} elements were proactively skipped");
-        return allowedNodes.SelectMany(x => x.Values).OrderBy(x => x.Id).ToArray(); // TODO: this causes a bunch of memory ballooning
+        return allowedNodes.SelectMany(x => x).OrderBy(x => x.Id).ToArray();
     }
     private bool PresolveIterator(ref byte[] path, byte[] allowedActions, int ix = StepForwardDepth - 1)
     {
@@ -344,22 +356,23 @@ public class SawStepSolver
 
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
+            _nodesEvaluated += prevStep.Count;
+            
+            //TODO: reenable this? somehow it was dropping the final score
+            prevStep = _stepResults.GroupBy(x => x.Item1)
+                .OrderByDescending(x => x.Key)
+                .Take(StepSize)
+                .SelectMany(group => group.DistinctBy(x => x.Item3))
+                .Take(StepSize)
+                .Select(x => (x.Item1, x.Item2))
+                .ToList();
+            //prevStep = _stepResults.OrderByDescending(x => x.Item1).Take(StepSize).Select(x => (x.Item1, x.Item2)).ToList();
+            
             _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] [Step {step++ + 1}] " +
                     $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
                     $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) | " +
                     $"{_failures:N0} failures ({(double)_failures / _evaluated:P0})" +
-                    $" >> {_forwardSet:N0}");
-            _nodesEvaluated += prevStep.Count;
-
-            //TODO: reenable this? somehow it was dropping the final score
-            // prevStep = _stepResults.GroupBy(x => x.Item1)
-            //     .OrderByDescending(x => x.Key)
-            //     .Take(StepSize)
-            //     .SelectMany(group => group.DistinctBy(x => x.Item3))
-            //     .Take(StepSize)
-            //     .Select(x => (x.Item1, x.Item2))
-            //     .ToList();
-            prevStep = _stepResults.OrderByDescending(x => x.Item1).Take(StepSize).Select(x => (x.Item1, x.Item2)).ToList();
+                    $" >> {_forwardSet:N0} >> {prevStep.Count:N0}");
             
             _totalEvaluated += _evaluated;
             _totalFailures += _failures;
@@ -381,7 +394,7 @@ public class SawStepSolver
 
         ResetLocals(out double localBestScore, out var localBestPath, out var localBestState);
         List<(double, byte[], LightState)> forward = new();
-        LightState prevState = _sim.Simulate(prevStep.Item2);
+        LightState prevState = _sim.SimulateToFailure(prevStep.Item2);
 
         #region Handle New Expansions
         byte prevKey = byte.MaxValue;
@@ -411,7 +424,7 @@ public class SawStepSolver
             if (prevKey != key)
             {
                 if (localBestScore >= 0)
-                    forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + 1).ToArray(), localBestState));
+                    forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + (StepForwardDepth - StepBackDepth)).ToArray(), localBestState));
                 ResetLocals(out localBestScore, out localBestPath, out localBestState);
                 prevKey = key;
             }
@@ -420,11 +433,8 @@ public class SawStepSolver
             _evaluated++;
             double score = Score(parentState, key);
             bool success = parentState.Success(_sim);
-            if (score > localBestScore)
-            {
-                if (success) ConfirmHighScore(score, prevStep, path);
-                PreserveState(score, parentState, ref localBestScore, ref localBestPath, ref localBestState, prevStep, path);
-            }
+            if (score > localBestScore && success)
+                ConfirmHighScore(score, prevStep, path);
             int stepsTaken = parentState.Step - prevState.Step;
             if (stepsTaken <= StepForwardDepth - 2)
             {
@@ -465,10 +475,11 @@ public class SawStepSolver
             pool.Return(path, true);
         }
 
-        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + 1).ToArray(), localBestState));
+        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + (StepForwardDepth - StepBackDepth)).ToArray(), localBestState));
         #endregion
 
         _forwardSet += forward.Count;
+        var temp = forward.OrderByDescending(x => x.Item1).ToArray();
         foreach (var item in forward.OrderByDescending(x => x.Item1)) _stepResults.Add(item);
         
         if (threadId < _threads.Length) _threads[threadId] = null;
@@ -503,7 +514,7 @@ public class SawStepSolver
         if (score <= localBestScore) return;
         
         localBestScore = score;
-        localBestPath = prevStep.Item2.Concat(batch);
+        localBestPath = prevStep.Item2.Concat(batch.Take(StepForwardDepth)).ToArray();
         localBestState = state;
     }
     private void ConfirmHighScore(double score, (double, byte[]) prevStep, IEnumerable<byte> batch)
@@ -511,7 +522,7 @@ public class SawStepSolver
         lock (_locker)
         {
             if (score <= _bestScore) return;
-            byte[] path = prevStep.Item2.Concat(batch).ToArray();
+            byte[] path = prevStep.Item2.Concat(batch.Take(StepForwardDepth)).ToArray();
 
             _bestScore = score;
             LightState s = _sim.SimulateToFailure(path);

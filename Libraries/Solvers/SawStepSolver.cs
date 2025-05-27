@@ -11,11 +11,11 @@ public class SawStepSolver
     private const int
         MaxThreads = 25,
         MaxDepth = 30,
-        StepForwardDepth = 7,
+        StepForwardDepth = 4,
         StepBackDepth = 0,
         StepSize = 10_000;
 
-    private double _bestScore;
+    private double _bestScore, _worstAllowedScore = double.MinValue;
     private List<Action> _bestSolution;
     private long _presolveFound, _evaluated, _failures, _skipped , _forwardSet;
     private long _totalEvaluated, _totalFailures, _totalSkipped, _nodesEvaluated;
@@ -101,7 +101,7 @@ public class SawStepSolver
         _bestSolution = new List<Action>();
 
         BigInteger gameSpace = BigInteger.Pow(_actions.Length, MaxDepth);
-        BigInteger solverSpace = BigInteger.Pow(_actions.Length, StepForwardDepth);
+        BigInteger solverSpace = BigInteger.Pow(_actions.Count(x => !Atlas.Actions.FirstRoundActions.Contains(x)), StepForwardDepth);
         _logger($"[{DateTime.Now}] Game space is {gameSpace:N0} nodes, solver space [{StepForwardDepth}] is {solverSpace:N0} nodes (~1 / {gameSpace / solverSpace:N0})");
         
         Console.Write("Pre-solving");
@@ -153,6 +153,7 @@ public class SawStepSolver
                         uint newStateIx = 0;
                         for (int j = 0; j < StepForwardDepth - 1; j++)
                             newStateIx = newStateIx * TreeWidth + path[j];
+                        
                         if (newStateIx != stateIx)
                         {
                             if (node.Actions != 0) allowedNodes[ix].Add(node);
@@ -327,57 +328,41 @@ public class SawStepSolver
             _skipped = 0;
             _forwardSet = 0;
 
-            List<Thread> extraThreads = new();
-            for (int i = 0; i < prevStep.Count; i++)
+            int chunkSize = (int)Math.Ceiling(prevStep.Count / (decimal)MaxThreads);
+            var chunks = prevStep.Chunk(chunkSize);
+            int ix = 0;
+            foreach (var chunk in chunks)
             {
-                Thread t = SolverThread(i, prevStep[i]);
-                if (i < _threads.Length)
-                {
-                    _threads[i] = t;
-                    t.Start();
-                }
-                else extraThreads.Add(t);
+                Thread t = SolverThread(chunk);
+                t.Start();
+                _threads[ix++] = t;
             }
-            await Task.Delay(1_000);
 
-            while (extraThreads.Any())
-            {
-                for (int i = 0; i < _threads.Length; i++)
-                {
-                    if (extraThreads.Any() && (_threads[i] == null || !_threads[i]!.IsAlive))
-                    {
-                        extraThreads[0].Start();
-                        _threads[i] = extraThreads[0];
-                        extraThreads.RemoveAt(0);
-                    }
-                }
-                await Task.Delay(1_000);
-            }
+            Task.Delay(30_000).Wait();
 
             _countdown.Signal();
             await Task.Run(() => _countdown.Wait());
             _nodesEvaluated += prevStep.Count;
             
-            //TODO: reenable this? somehow it was dropping the final score
             prevStep = _stepResults.GroupBy(x => x.Item1)
-                .OrderByDescending(x => x.Key)
-                .Take(StepSize)
-                .SelectMany(group => group.DistinctBy(x => x.Item3))
-                .Take(StepSize)
-                .Select(x => (x.Item1, x.Item2))
-                .ToList();
-            //prevStep = _stepResults.OrderByDescending(x => x.Item1).Take(StepSize).Select(x => (x.Item1, x.Item2)).ToList();
+                 .OrderByDescending(x => x.Key)
+                 .Take(StepSize)
+                 .SelectMany(group => group.DistinctBy(x => x.Item3))
+                 .Take(StepSize)
+                 .Select(x => (x.Item1, x.Item2))
+                 .ToList();
+            _worstAllowedScore = prevStep.LastOrDefault().Item1;
             
             _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] [Step {step++ + 1}] " +
                     $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
                     $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) | " +
-                    $"{_failures:N0} failures ({(double)_failures / _evaluated:P0})" +
-                    $" >> {_forwardSet:N0} >> {prevStep.Count:N0}");
+                    $"{_failures:N0} failures ({(double)_failures / _evaluated:P0}) " +
+                    $">> {_forwardSet:N0} >> {prevStep.Count:N0}");
             
             _totalEvaluated += _evaluated;
             _totalFailures += _failures;
             _totalSkipped += _skipped;
-        } while (_stepResults.Any() && _stepResults.First().Item2.Length < MaxDepth - StepForwardDepth);
+        } while (_stepResults.Any(x => x.Item2.Length < MaxDepth));
 
         _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds, true)}] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
@@ -387,102 +372,114 @@ public class SawStepSolver
                 $"(~{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth) / Math.Pow(_actions.Length, MaxDepth):P12} of game space) evaluated");
         return _bestSolution;
     }
-    private Thread SolverThread(int threadId, (double, byte[]) prevStep) => new(() =>
+    private Thread SolverThread(IEnumerable<(double, byte[])> prevStep) => new(() =>
     {
         if (_countdown.IsSet) return;
         _countdown.AddCount();
 
-        ResetLocals(out double localBestScore, out var localBestPath, out var localBestState);
         List<(double, byte[], LightState)> forward = new();
-        LightState prevState = _sim.SimulateToFailure(prevStep.Item2);
-
-        #region Handle New Expansions
-        byte prevKey = byte.MaxValue;
-        long skipIx = -1;
-        ArrayPool<byte> pool = ArrayPool<byte>.Create();
-        foreach (var kvp in _tree)
+        foreach ((double, byte[]) step in prevStep)
         {
-            switch (skipIx)
-            {
-                case >= 0 when skipIx >= kvp.Id:
-                    _skipped += 1;
-                    continue; // fast-forward
-                case >= 0:
-                    skipIx = -1;
-                    break; // record scratch
-            }
-            
-            uint parentIx = kvp.Id;
-            byte[] path = pool.Rent(StepForwardDepth);
-            for (int i = StepForwardDepth - 2; i >= 0; i--)
-            {
-                path[i] = (byte)(parentIx % TreeWidth);
-                parentIx = (uint)Math.Truncate(Math.Floor(parentIx / (decimal)TreeWidth));
-            }
+            LightState prevState = _sim.SimulateToFailure(step.Item2);
 
-            byte key = path[0];
-            if (prevKey != key)
-            {
-                if (localBestScore >= 0)
-                    forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + (StepForwardDepth - StepBackDepth)).ToArray(), localBestState));
-                ResetLocals(out localBestScore, out localBestPath, out localBestState);
-                prevKey = key;
-            }
+            #region Handle New Expansions
 
-            LightState parentState = _sim.SimulateToFailure(path, StepForwardDepth - 1, prevState);
-            _evaluated++;
-            double score = Score(parentState, key);
-            bool success = parentState.Success(_sim);
-            if (score > localBestScore && success)
-                ConfirmHighScore(score, prevStep, path);
-            int stepsTaken = parentState.Step - prevState.Step;
-            if (stepsTaken <= StepForwardDepth - 2)
+            long skipIx = -1;
+            ArrayPool<byte> pool = ArrayPool<byte>.Create();
+            foreach (var kvp in _tree)
             {
-                long mod = (int)Math.Pow(TreeWidth, StepForwardDepth - stepsTaken - 2);
-                skipIx = kvp.Id - (kvp.Id % mod) + (mod - 1);
-                        
-                if (!success) _failures++;
-                pool.Return(path, clearArray: true);
-                continue;
-            }
-            else if (success)
-            {
-                pool.Return(path, clearArray: true);
-                continue;
-            }
-
-            for (int i = 0; i < TreeWidth; i++)
-            {
-                if ((int)(kvp.Actions & (StateNode.StateActions)(1 << i)) == 1 << i)
+                switch (skipIx)
                 {
-                    LightState state = _sim.Simulate(_stateToAction[1 << i], parentState);
-                    _evaluated++;
-                    if (state.IsError)
-                    {
-                        _failures++;
-                        continue;
-                    }
+                    case >= 0 when skipIx >= kvp.Id:
+                        _skipped += 1;
+                        continue; // fast-forward
+                    case >= 0:
+                        skipIx = -1;
+                        break; // record scratch
+                }
 
-                    score = Score(state, key);
-                    if (score > localBestScore)
+                uint parentIx = kvp.Id;
+                byte[] path = pool.Rent(StepForwardDepth);
+                for (int i = StepForwardDepth - 2; i >= 0; i--)
+                {
+                    path[i] = (byte)(parentIx % TreeWidth);
+                    parentIx = (uint)Math.Truncate(Math.Floor(parentIx / (decimal)TreeWidth));
+                }
+
+                byte key = path[0];
+
+                LightState parentState = _sim.SimulateToFailure(path, StepForwardDepth - 1, prevState);
+                _evaluated++;
+                double score = Score(parentState, key);
+                bool success = parentState.Success(_sim);
+                if (success) ConfirmHighScore(score, step, path);
+                int stepsTaken = parentState.Step - prevState.Step;
+                if (stepsTaken <= StepForwardDepth - 2)
+                {
+                    long mod = (int)Math.Pow(TreeWidth, StepForwardDepth - stepsTaken - 2);
+                    skipIx = kvp.Id - (kvp.Id % mod) + (mod - 1);
+
+                    if (!success) _failures++;
+                    pool.Return(path, clearArray: true);
+                    continue;
+                }
+                else if (success)
+                {
+                    pool.Return(path, clearArray: true);
+                    continue;
+                }
+
+                for (int i = 0; i < TreeWidth; i++)
+                {
+                    if ((int)(kvp.Actions & (StateNode.StateActions)(1 << i)) == 1 << i)
                     {
+                        LightState state = _sim.Simulate(_stateToAction[1 << i], parentState);
+                        _evaluated++;
+                        if (state.IsError)
+                        {
+                            _failures++;
+                            continue;
+                        }
+
+                        score = Score(state, key);
                         path[StepForwardDepth - 1] = _stateToAction[1 << i];
-                        if (state.Success(_sim)) ConfirmHighScore(score, prevStep, path);
-                        PreserveState(score, state, ref localBestScore, ref localBestPath, ref localBestState, prevStep, path);
+                        if (state.Success(_sim)) ConfirmHighScore(score, step, path);
+
+                        if (!success && (score >= _worstAllowedScore))
+                        {
+                            forward.Add((score, step.Item2.Concat(path).Take(step.Item2.Length + (StepForwardDepth - StepBackDepth)).ToArray(), state));
+                        }
                     }
                 }
+
+                pool.Return(path, true);
             }
-            pool.Return(path, true);
+            #endregion
+
+            if (forward.Count >= StepSize * 10)
+            {
+                forward = forward
+                    .Where(x => x.Item1 >= _worstAllowedScore)
+                    .GroupBy(x => x.Item1)
+                    .OrderByDescending(x => x.Key)
+                    .Take(StepSize)
+                    .SelectMany(group => group.DistinctBy(x => x.Item3))
+                    .Take(StepSize)
+                    .ToList();
+                double localWorstScore = forward.LastOrDefault().Item1;
+                lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
+            }
         }
 
-        if (localBestScore >= 0) forward.Add((localBestScore, localBestPath.Take(prevStep.Item2.Length + (StepForwardDepth - StepBackDepth)).ToArray(), localBestState));
-        #endregion
-
         _forwardSet += forward.Count;
-        var temp = forward.OrderByDescending(x => x.Item1).ToArray();
-        foreach (var item in forward.OrderByDescending(x => x.Item1)) _stepResults.Add(item);
+        foreach (var item in forward
+                     .GroupBy(x => x.Item1)
+                     .OrderByDescending(x => x.Key)
+                     .Take(StepSize)
+                     .SelectMany(group => group.DistinctBy(x => x.Item3))
+                     .Take(StepSize))
+            _stepResults.Add(item);
         
-        if (threadId < _threads.Length) _threads[threadId] = null;
         _countdown.Signal();
     });
 
@@ -503,22 +500,9 @@ public class SawStepSolver
     #endregion
 
     #region Helpers
-    private void ResetLocals(out double localBestScore, out IEnumerable<byte> localBestPath, out LightState localBestState)
-    {
-        localBestScore = double.MinValue;
-        localBestPath = Array.Empty<byte>();
-        localBestState = new LightState();
-    }
-    private void PreserveState(double score, LightState state, ref double localBestScore, ref IEnumerable<byte> localBestPath, ref LightState localBestState, (double, byte[]) prevStep, byte[] batch)
-    {
-        if (score <= localBestScore) return;
-        
-        localBestScore = score;
-        localBestPath = prevStep.Item2.Concat(batch.Take(StepForwardDepth)).ToArray();
-        localBestState = state;
-    }
     private void ConfirmHighScore(double score, (double, byte[]) prevStep, IEnumerable<byte> batch)
     {
+        if (score <= _bestScore) return;
         lock (_locker)
         {
             if (score <= _bestScore) return;
@@ -527,7 +511,7 @@ public class SawStepSolver
             _bestScore = score;
             LightState s = _sim.SimulateToFailure(path);
             _bestSolution = path.Take(s.Step).Select(x => Atlas.Actions.AllActions[x]).ToList();
-            _logger($"\t{_bestScore:P} ({s.Quality:N0} Quality | {s.CP:N0} CP | {s.Durability:N0} Durability) [\"{string.Join("\", \"", _bestSolution.Select(x => x.ShortName))}\"]");
+            _logger($"\t{_bestScore:P} ({s.Quality,6:N0} Quality | {s.CP,4:N0} CP | {s.Durability,2:N0} Durability) [\"{string.Join("\", \"", _bestSolution.Select(x => x.ShortName))}\"]");
         }
     }
 

@@ -218,6 +218,20 @@ Recipe
         QualityModifier = 0.75,
         IsExpert = false
     },
+    ceviche = new()
+    {
+        Level = 100,
+        RLevel = 720,
+        Difficulty = 8050,
+        StartQuality = 0,
+        MaxQuality = 17600,
+        Durability = 70,
+        ProgressDivider = 170,
+        QualityDivider = 150,
+        ProgressModifier = 0.9,
+        QualityModifier = 0.75,
+        IsExpert = false
+    },
     indurateSpring = new()
     {
         Level = 100,
@@ -257,9 +271,17 @@ Crafter
         CP = 630+109,
         Level = 100,
         Actions = Atlas.Actions.DependableActions
+    },
+    test = new()
+    {
+        Craftsmanship = 5589,
+        Control = 5014,
+        CP = 741,
+        Level = 100,
+        Actions = Atlas.Actions.DependableActions
     };
 
-NanoSimulator sim = new(dawntrailBuffed, indurateSpring);
+NanoSimulator sim = new(dawntrail, ceviche);
 Atlas.Actions.UpgradeActionsByLevel(sim.Crafter.Level);
 
 var solution = await new SawStepSolver(sim, Console.WriteLine).Run();

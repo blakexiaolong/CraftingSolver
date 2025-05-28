@@ -2,6 +2,7 @@ using System.Buffers;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Numerics;
+using Newtonsoft.Json;
 
 namespace Libraries.Solvers;
 using static Solver;
@@ -11,14 +12,14 @@ public class SawStepSolver
     private const int
         MaxThreads = 25,
         MaxDepth = 30,
-        StepForwardDepth = 4,
-        StepBackDepth = 0,
-        StepSize = 10_000;
+        StepForwardDepth = 5,
+        StepSize = 1_000,
+        StepFlattenThreshold = StepSize * 10;
 
     private double _bestScore, _worstAllowedScore = double.MinValue;
     private List<Action> _bestSolution;
-    private long _presolveFound, _evaluated, _failures, _skipped , _forwardSet;
-    private long _totalEvaluated, _totalFailures, _totalSkipped, _nodesEvaluated;
+    private long _presolveFound, _evaluated, _failures, _skipped;
+    private long _totalEvaluated, _totalFailures, _totalSkipped;
 
     private readonly NanoSimulator _sim;
     private readonly LoggingDelegate _logger;
@@ -87,11 +88,10 @@ public class SawStepSolver
     };
     private readonly Dictionary<int, byte> _stateToAction;
 
-    private CountdownEvent _countdown = new(1);
     private readonly Thread?[] _threads = new Thread[MaxThreads];
     private readonly object _locker = new();
     private readonly Stopwatch _sw = new ();
-    private readonly ConcurrentBag<(double, byte[], LightState)> _stepResults = new();
+    private readonly ConcurrentBag<ForwardItem> _stepResults = new();
 
     public SawStepSolver(NanoSimulator sim, LoggingDelegate loggingDelegate)
     {
@@ -109,6 +109,63 @@ public class SawStepSolver
         _tree = Presolve();
 
         _logger($"\n[{DateTime.Now}] {_presolveFound:N0} expansions found (eliminated {(double)solverSpace - _presolveFound:N0} [{1 - _presolveFound / (double)solverSpace:P0}] possible expansions)");
+    }
+    private class SearchResponseItem
+    {
+        public string En { get; set; }
+        public int ItemId { get; set; }
+    }
+    private class RecipeResponseItem
+    {
+        public int Id { get; set; }
+        public int Job { get; set; }
+        public int Lvl { get; set; }
+        public int Stars { get; set; }
+        public bool Hq { get; set; }
+        public int Durability { get; set; }
+        public int Quality { get; set; }
+        public int Progress { get; set; }
+        public int ProgressDivider { get; set; }
+        public int QualityDivider { get; set; }
+        public int ProgressModifier { get; set; }
+        public int QualityModifier { get; set; }
+        public int ControlReq { get; set; }
+        public int CraftsmanshipReq { get; set; }
+        public int RLvl { get; set; }
+        public int RequiredQuality { get; set; }
+        public bool Expert { get; set; }
+    }
+    public static async Task<Recipe> Lookup(string term, Crafter crafter)
+    {
+        using HttpClient httpClient = new HttpClient();
+        HttpResponseMessage response = await httpClient.GetAsync($"https://api.ffxivteamcraft.com/search?query={term}&type=Recipe&sort=desc&lang=en");
+        using StreamReader streamReader = new StreamReader(await response.Content.ReadAsStreamAsync());
+        SearchResponseItem[]? searchResponse = JsonConvert.DeserializeObject<SearchResponseItem[]>(await streamReader.ReadToEndAsync());
+        if (searchResponse == default || searchResponse.Length == 0) throw new Exception("Search returned no results");
+
+        response = await httpClient.GetAsync($"https://api.ffxivteamcraft.com/data/recipes-per-item/854db737f29126dbe84cecd2a4a17a6b0823ecfa/{searchResponse[0].ItemId}");
+        using StreamReader streamReader2 = new StreamReader(await response.Content.ReadAsStreamAsync());
+        Dictionary<string, RecipeResponseItem[]>? recipeResponse = JsonConvert.DeserializeObject<Dictionary<string, RecipeResponseItem[]>>(await streamReader2.ReadToEndAsync());
+        if (recipeResponse == default || recipeResponse.Count == 0) throw new Exception("Search returned no recipes");
+
+        RecipeResponseItem recipe = recipeResponse[searchResponse[0].ItemId.ToString()][0];
+        if (crafter.Control < recipe.ControlReq) throw new Exception("You do not have the Control to craft this item");
+        if (crafter.Craftsmanship < recipe.CraftsmanshipReq) throw new Exception("You do not have the Craftsmanship to craft this item");
+        
+        return new Recipe()
+        {
+            Level = (byte)recipe.Lvl,
+            RLevel = (short)recipe.RLvl,
+            Difficulty = recipe.Progress,
+            StartQuality = 0,
+            MaxQuality = recipe.Hq ? recipe.Quality : 0,
+            Durability = (byte)recipe.Durability,
+            ProgressDivider = (byte)recipe.ProgressDivider,
+            QualityDivider = (byte)recipe.QualityDivider,
+            ProgressModifier = recipe.ProgressModifier / 100D,
+            QualityModifier = recipe.QualityModifier / 100D,
+            IsExpert = recipe.Expert
+        };
     }
 
     #region Presolving
@@ -307,26 +364,20 @@ public class SawStepSolver
     #endregion
     
     #region Solving
-    public async Task<List<Action>> Run()
+    public List<Action> Run()
     {
         GC.Collect();
         _sw.Start();
 
-        int step = 0;
-        List<(double, byte[])> prevStep = _actions.Select(x => (-1D, new[] { x })).Where(x => !_sim.Simulate(x.Item2).IsError).ToList();
+        int step = 0, preLength;
+        List<(float, byte[])> prevStep = _actions.Select(x => (-1F, new[] { x })).Where(x => !_sim.Simulate(x.Item2).IsError).ToList();
 
-        _totalEvaluated = 0;
-        _totalFailures = 0;
-        _totalSkipped = 0;
-        _nodesEvaluated = 0;
         do
         {
             _stepResults.Clear();
-            _countdown = new CountdownEvent(1);
             _evaluated = 0;
             _failures = 0;
             _skipped = 0;
-            _forwardSet = 0;
 
             int chunkSize = (int)Math.Ceiling(prevStep.Count / (decimal)MaxThreads);
             var chunks = prevStep.Chunk(chunkSize);
@@ -338,48 +389,66 @@ public class SawStepSolver
                 _threads[ix++] = t;
             }
 
-            Task.Delay(30_000).Wait();
+            foreach (Thread? t in _threads) t?.Join();
+            preLength = prevStep.FirstOrDefault().Item2.Length;
+            prevStep = new List<(float, byte[])>(_stepResults
+                .AsParallel()
+                .GroupBy(x => x.Score)
+                .OrderByDescending(x => x.Key)
+                .Take(StepSize)
+                .SelectMany(group => group.DistinctBy(x => x.State).Select(x =>
+                {
+                    // get start of path
+                    byte[] path = new byte[preLength + StepForwardDepth];
+                    prevStep[x.StepIx].Item2.CopyTo(path, 0);
 
-            _countdown.Signal();
-            await Task.Run(() => _countdown.Wait());
-            _nodesEvaluated += prevStep.Count;
-            
-            prevStep = _stepResults.GroupBy(x => x.Item1)
-                 .OrderByDescending(x => x.Key)
-                 .Take(StepSize)
-                 .SelectMany(group => group.DistinctBy(x => x.Item3))
-                 .Take(StepSize)
-                 .Select(x => (x.Item1, x.Item2))
-                 .ToList();
+                    // middle
+                    uint parentIx = x.PresolverKey;
+                    for (int i = preLength + StepForwardDepth - 2; i >= preLength; i--)
+                    {
+                        path[i] = (byte)(parentIx % TreeWidth);
+                        parentIx = (uint)Math.Truncate(Math.Floor(parentIx / (decimal)TreeWidth));
+                    }
+
+                    // last action
+                    path[^1] = x.Action;
+                    return (x.Score, path);
+                }))
+                .Take(StepSize)
+                .ToArray());
             _worstAllowedScore = prevStep.LastOrDefault().Item1;
-            
+
             _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] [Step {step++ + 1}] " +
                     $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
                     $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) | " +
                     $"{_failures:N0} failures ({(double)_failures / _evaluated:P0}) " +
-                    $">> {_forwardSet:N0} >> {prevStep.Count:N0}");
-            
+                    $">> {_stepResults.Count:N0} >> {prevStep.Count:N0}");
+
             _totalEvaluated += _evaluated;
             _totalFailures += _failures;
             _totalSkipped += _skipped;
-        } while (_stepResults.Any(x => x.Item2.Length < MaxDepth));
+        } while (prevStep.Count > 0 && preLength < MaxDepth);
 
         _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds, true)}] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) | " +
-                $"{_totalFailures:N0} failures ({(double)_totalFailures / _totalEvaluated:P0}) - " +
-                $"{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth):N0} nodes " +
-                $"(~{_nodesEvaluated * Math.Pow(_actions.Length, StepForwardDepth) / Math.Pow(_actions.Length, MaxDepth):P12} of game space) evaluated");
+                $"{_totalFailures:N0} failures ({(double)_totalFailures / _totalEvaluated:P0})");
         return _bestSolution;
     }
-    private Thread SolverThread(IEnumerable<(double, byte[])> prevStep) => new(() =>
+    struct ForwardItem
     {
-        if (_countdown.IsSet) return;
-        _countdown.AddCount();
-
-        List<(double, byte[], LightState)> forward = new();
-        foreach ((double, byte[]) step in prevStep)
+        public float Score;
+        public LightState State;
+        public int StepIx;
+        public uint PresolverKey;
+        public byte Action;
+    }
+    private Thread SolverThread((float, byte[])[] prevStep) => new(() =>
+    {
+        List<ForwardItem> forward = new List<ForwardItem>(StepFlattenThreshold * 2);
+        for (int stepIx = 0; stepIx < prevStep.Length; stepIx++)
         {
+            (double, byte[]) step = prevStep[stepIx];
             LightState prevState = _sim.SimulateToFailure(step.Item2);
 
             #region Handle New Expansions
@@ -410,7 +479,7 @@ public class SawStepSolver
 
                 LightState parentState = _sim.SimulateToFailure(path, StepForwardDepth - 1, prevState);
                 _evaluated++;
-                double score = Score(parentState, key);
+                float score = Score(parentState, key);
                 bool success = parentState.Success(_sim);
                 if (success) ConfirmHighScore(score, step, path);
                 int stepsTaken = parentState.Step - prevState.Step;
@@ -433,7 +502,8 @@ public class SawStepSolver
                 {
                     if ((int)(kvp.Actions & (StateNode.StateActions)(1 << i)) == 1 << i)
                     {
-                        LightState state = _sim.Simulate(_stateToAction[1 << i], parentState);
+                        byte action = _stateToAction[1 << i];
+                        LightState state = _sim.Simulate(action, parentState);
                         _evaluated++;
                         if (state.IsError)
                         {
@@ -442,12 +512,32 @@ public class SawStepSolver
                         }
 
                         score = Score(state, key);
-                        path[StepForwardDepth - 1] = _stateToAction[1 << i];
+                        path[StepForwardDepth - 1] = action;
                         if (state.Success(_sim)) ConfirmHighScore(score, step, path);
 
-                        if (!success && (score >= _worstAllowedScore))
+                        if (!success && score >= _worstAllowedScore)
                         {
-                            forward.Add((score, step.Item2.Concat(path).Take(step.Item2.Length + (StepForwardDepth - StepBackDepth)).ToArray(), state));
+                            forward.Add(new ForwardItem()
+                            {
+                                Score = score,
+                                State = state,
+                                StepIx = stepIx,
+                                PresolverKey = kvp.Id,
+                                Action = action
+                            });
+                            if (forward.Count >= StepFlattenThreshold)
+                            {
+                                forward = new List<ForwardItem>(forward
+                                    .Where(x => x.Score >= _worstAllowedScore)
+                                    .GroupBy(x => x.Score)
+                                    .OrderByDescending(x => x.Key)
+                                    .Take(StepSize)
+                                    .SelectMany(group => group.DistinctBy(x => x.State))
+                                    .Take(StepSize)
+                                    .ToArray());
+                                double localWorstScore = forward.LastOrDefault().Score;
+                                lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
+                            }
                         }
                     }
                 }
@@ -455,35 +545,18 @@ public class SawStepSolver
                 pool.Return(path, true);
             }
             #endregion
-
-            if (forward.Count >= StepSize * 10)
-            {
-                forward = forward
-                    .Where(x => x.Item1 >= _worstAllowedScore)
-                    .GroupBy(x => x.Item1)
-                    .OrderByDescending(x => x.Key)
-                    .Take(StepSize)
-                    .SelectMany(group => group.DistinctBy(x => x.Item3))
-                    .Take(StepSize)
-                    .ToList();
-                double localWorstScore = forward.LastOrDefault().Item1;
-                lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
-            }
         }
 
-        _forwardSet += forward.Count;
         foreach (var item in forward
-                     .GroupBy(x => x.Item1)
+                     .GroupBy(x => x.Score)
                      .OrderByDescending(x => x.Key)
                      .Take(StepSize)
-                     .SelectMany(group => group.DistinctBy(x => x.Item3))
+                     .SelectMany(group => group.DistinctBy(x => x.State))
                      .Take(StepSize))
             _stepResults.Add(item);
-        
-        _countdown.Signal();
     });
 
-    private double Score(LightState state, int firstAction)
+    private float Score(LightState state, int firstAction)
     {
         double progress = Math.Min(_sim.Recipe.Difficulty, state.Progress) / _sim.Recipe.Difficulty;
 
@@ -492,10 +565,10 @@ public class SawStepSolver
         if (firstAction == (int)Atlas.Actions.ActionMap.TrainedEye) quality = 1;
         
         // ReSharper disable once PossibleLossOfFraction
-        double cp = state.CP / _sim.Crafter.CP;
-        double steps = 1 - state.Step / 100D;
+        float cp = state.CP / _sim.Crafter.CP;
+        float steps = 1 - state.Step / 100F;
 
-        return (progress*90 + quality*150 + steps*9 + cp*1) / 250; // max 100
+        return (float)((progress*90 + quality*150 + steps*9 + cp*1) / 250F); // max 100
     }
     #endregion
 

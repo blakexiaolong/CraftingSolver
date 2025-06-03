@@ -110,6 +110,8 @@ public class SawStepSolver
 
         _logger($"\n[{DateTime.Now}] {_presolveFound:N0} expansions found (eliminated {(double)solverSpace - _presolveFound:N0} [{1 - _presolveFound / (double)solverSpace:P0}] possible expansions)");
     }
+    
+    #region Teamcraft
     private class SearchResponseItem
     {
         public string En { get; set; }
@@ -167,6 +169,7 @@ public class SawStepSolver
             IsExpert = recipe.Expert
         };
     }
+    #endregion
 
     #region Presolving
     private StateNode[] Presolve()
@@ -391,7 +394,7 @@ public class SawStepSolver
 
             foreach (Thread? t in _threads) t?.Join();
             preLength = prevStep.FirstOrDefault().Item2.Length;
-            prevStep = new List<(float, byte[])>(_stepResults
+            prevStep = _stepResults
                 .AsParallel()
                 .GroupBy(x => x.Score)
                 .OrderByDescending(x => x.Key)
@@ -415,7 +418,7 @@ public class SawStepSolver
                     return (x.Score, path);
                 }))
                 .Take(StepSize)
-                .ToArray());
+                .ToList();
             _worstAllowedScore = prevStep.LastOrDefault().Item1;
 
             _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] [Step {step++ + 1}] " +
@@ -445,7 +448,7 @@ public class SawStepSolver
     }
     private Thread SolverThread((float, byte[])[] prevStep) => new(() =>
     {
-        List<ForwardItem> forward = new List<ForwardItem>(StepFlattenThreshold * 2);
+        List<ForwardItem> forward = new List<ForwardItem>(StepSize);
         for (int stepIx = 0; stepIx < prevStep.Length; stepIx++)
         {
             (double, byte[]) step = prevStep[stepIx];
@@ -517,6 +520,8 @@ public class SawStepSolver
 
                         if (!success && score >= _worstAllowedScore)
                         {
+                            if (forward.Any(x => Math.Abs(x.Score - score) < 0.01 && x.State.Equals(state))) continue;
+                            
                             forward.Add(new ForwardItem()
                             {
                                 Score = score,
@@ -527,14 +532,11 @@ public class SawStepSolver
                             });
                             if (forward.Count >= StepFlattenThreshold)
                             {
-                                forward = new List<ForwardItem>(forward
+                                forward = forward
                                     .Where(x => x.Score >= _worstAllowedScore)
-                                    .GroupBy(x => x.Score)
-                                    .OrderByDescending(x => x.Key)
+                                    .OrderByDescending(x => x.Score)
                                     .Take(StepSize)
-                                    .SelectMany(group => group.DistinctBy(x => x.State))
-                                    .Take(StepSize)
-                                    .ToArray());
+                                    .ToList();
                                 double localWorstScore = forward.LastOrDefault().Score;
                                 lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
                             }

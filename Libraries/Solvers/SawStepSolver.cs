@@ -18,8 +18,9 @@ public class SawStepSolver
 
     private double _bestScore, _worstAllowedScore = double.MinValue;
     private List<Action> _bestSolution;
-    private long _presolveFound, _evaluated, _failures, _skipped;
-    private long _totalEvaluated, _totalFailures, _totalSkipped;
+    private long _presolveFound, _evaluated, _failures, _skipped, _foundSolutions;
+    private long _totalEvaluated, _totalFailures, _totalSkipped, _totalSimulated, _totalWastedSimulations;
+    private long _simulations, _wastedSimulations;
 
     private readonly NanoSimulator _sim;
     private readonly LoggingDelegate _logger;
@@ -381,6 +382,9 @@ public class SawStepSolver
             _evaluated = 0;
             _failures = 0;
             _skipped = 0;
+            _foundSolutions = 0;
+            _simulations = 0;
+            _wastedSimulations = 0;
 
             int chunkSize = (int)Math.Ceiling(prevStep.Count / (decimal)MaxThreads);
             var chunks = prevStep.Chunk(chunkSize);
@@ -424,18 +428,22 @@ public class SawStepSolver
             _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds)}] [Step {step++ + 1}] " +
                     $"{_skipped:N0} skipped ({(double)_skipped / (_evaluated + _skipped):P0}) - " +
                     $"{_evaluated:N0} evaluated ({(double)_evaluated / (_evaluated + _skipped):P0}) | " +
-                    $"{_failures:N0} failures ({(double)_failures / _evaluated:P0}) " +
-                    $">> {_stepResults.Count:N0} >> {prevStep.Count:N0}");
+                    $"{_failures:N0} failures ({(double)_failures / _evaluated:P0}) | " +
+                    $"{_simulations:N0} simulations - {_wastedSimulations:N0} wasted ({_wastedSimulations / (double)_simulations:P0}) " +
+                    $">> {_foundSolutions:N0} >> {prevStep.Count:N0}");
 
             _totalEvaluated += _evaluated;
             _totalFailures += _failures;
             _totalSkipped += _skipped;
+            _totalSimulated += _simulations;
+            _totalWastedSimulations += _wastedSimulations;
         } while (prevStep.Count > 0 && preLength < MaxDepth);
 
         _logger($"[{DateTime.Now}, {MsToHumanReadable(_sw.ElapsedMilliseconds, true)}] " +
                 $"{_totalSkipped:N0} skipped ({(double)_totalSkipped / (_totalEvaluated + _totalSkipped):P0}) - " +
                 $"{_totalEvaluated:N0} evaluated ({(double)_totalEvaluated / (_totalEvaluated + _totalSkipped):P0}) | " +
-                $"{_totalFailures:N0} failures ({(double)_totalFailures / _totalEvaluated:P0})");
+                $"{_totalFailures:N0} failures ({(double)_totalFailures / _totalEvaluated:P0}) | " +
+                $"{_totalSimulated:N0} simulations - {_totalWastedSimulations:N0} wasted ({_totalWastedSimulations / (double)_totalSimulated:P0})");
         return _bestSolution;
     }
     struct ForwardItem
@@ -448,6 +456,9 @@ public class SawStepSolver
     }
     private Thread SolverThread((float, byte[])[] prevStep) => new(() =>
     {
+        long simulations = 0, wastedSimulations = 0, solutions = 0;
+
+        byte[] lastStep = Array.Empty<byte>();
         List<ForwardItem> forward = new List<ForwardItem>(StepSize);
         for (int stepIx = 0; stepIx < prevStep.Length; stepIx++)
         {
@@ -507,6 +518,7 @@ public class SawStepSolver
                     {
                         byte action = _stateToAction[1 << i];
                         LightState state = _sim.Simulate(action, parentState);
+                        simulations++;
                         _evaluated++;
                         if (state.IsError)
                         {
@@ -515,31 +527,35 @@ public class SawStepSolver
                         }
 
                         score = Score(state, key);
+                        if (score == 0) continue;
+                        
                         path[StepForwardDepth - 1] = action;
-                        if (state.Success(_sim)) ConfirmHighScore(score, step, path);
-
-                        if (!success && score >= _worstAllowedScore)
+                        success = state.Success(_sim);
+                        if (success)
                         {
-                            if (forward.Any(x => Math.Abs(x.Score - score) < 0.01 && x.State.Equals(state))) continue;
-                            
-                            forward.Add(new ForwardItem()
-                            {
-                                Score = score,
-                                State = state,
-                                StepIx = stepIx,
-                                PresolverKey = kvp.Id,
-                                Action = action
-                            });
-                            if (forward.Count >= StepFlattenThreshold)
-                            {
-                                forward = forward
-                                    .Where(x => x.Score >= _worstAllowedScore)
-                                    .OrderByDescending(x => x.Score)
-                                    .Take(StepSize)
-                                    .ToList();
-                                double localWorstScore = forward.LastOrDefault().Score;
-                                lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
-                            }
+                            ConfirmHighScore(score, step, path);
+                            continue;
+                        }
+                        solutions++;
+                        if (score < _worstAllowedScore || forward.Any(x => Math.Abs(x.Score - score) < 0.01 && x.State.Equals(state))) continue;
+
+                        forward.Add(new ForwardItem()
+                        {
+                            Score = score,
+                            State = state,
+                            StepIx = stepIx,
+                            PresolverKey = kvp.Id,
+                            Action = action
+                        });
+                        if (forward.Count >= StepFlattenThreshold)
+                        {
+                            forward = forward
+                                .Where(x => x.Score >= _worstAllowedScore)
+                                .OrderByDescending(x => x.Score)
+                                .Take(StepSize)
+                                .ToList();
+                            double localWorstScore = forward.LastOrDefault().Score;
+                            lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
                         }
                     }
                 }

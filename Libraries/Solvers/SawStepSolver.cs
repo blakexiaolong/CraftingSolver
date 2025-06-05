@@ -468,7 +468,8 @@ public class SawStepSolver
         long simulations = 0, wastedSimulations = 0, solutions = 0;
 
         byte[] lastStep = Array.Empty<byte>();
-        List<ForwardItem> forward = new List<ForwardItem>(StepSize);
+        Dictionary<float, List<ForwardItem>> forward = new Dictionary<float, List<ForwardItem>>(StepSize);
+        long forwardItems = 0;
         while (_prevStep.TryDequeue(out (int, byte[]) step))
         {
             LightState prevState = _sim.SimulateToFailure(step.Item2);
@@ -565,9 +566,10 @@ public class SawStepSolver
                     }
 
                     solutions++;
-                    if (score < _worstAllowedScore || forward.Any(x => Math.Abs(x.Score - score) < 0.01 && x.State.Equals(state))) continue;
+                    if (score < _worstAllowedScore || (forward.ContainsKey(score) && forward[score].Any(x=>x.State.Equals(state)))) continue;
 
-                    forward.Add(new ForwardItem()
+                    if (!forward.ContainsKey(score)) forward[score] = new List<ForwardItem>();
+                    forward[score].Add(new ForwardItem()
                     {
                         Score = score,
                         State = state,
@@ -575,15 +577,24 @@ public class SawStepSolver
                         PresolverKey = kvp.Id,
                         Action = action
                     });
-                    if (forward.Count >= StepFlattenThreshold)
+                    if (++forwardItems >= StepFlattenThreshold)
                     {
-                        forward = forward
-                            .Where(x => x.Score >= _worstAllowedScore)
-                            .OrderByDescending(x => x.Score)
-                            .Take(StepSize)
-                            .ToList();
-                        double localWorstScore = forward.LastOrDefault().Score;
+                        int c = 0;
+                        double localWorstScore = forward.Keys.Min();
+                        foreach (float k in forward.Keys.OrderByDescending(x => x))
+                        {
+                            c += forward[k].Count;
+                            if (c > StepSize)
+                            {
+                                localWorstScore = k;
+                                break;
+                            }
+                        }
+                        
                         lock (_locker) _worstAllowedScore = Math.Max(_worstAllowedScore, localWorstScore);
+                        foreach (float k in forward.Keys)
+                            if (k < _worstAllowedScore)
+                                forward.Remove(k);
                     }
                 }
 
@@ -593,8 +604,9 @@ public class SawStepSolver
         }
 
         foreach (var item in forward
-                     .Where(x => x.Score >= _worstAllowedScore)
-                     .OrderByDescending(x => x.Score)
+                     .Where(x => x.Key >= _worstAllowedScore)
+                     .OrderByDescending(x => x.Key)
+                     .SelectMany(x=>x.Value)
                      .Take(StepSize))
             _stepResults.Add(item);
         

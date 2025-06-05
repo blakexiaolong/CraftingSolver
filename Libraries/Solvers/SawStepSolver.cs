@@ -595,6 +595,7 @@ public class SawStepSolver
                         foreach (float k in forward.Keys)
                             if (k < _worstAllowedScore)
                                 forward.Remove(k);
+                        forwardItems = forward.Sum(x => x.Value.Count);
                     }
                 }
 
